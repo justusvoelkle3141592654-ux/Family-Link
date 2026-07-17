@@ -66,17 +66,22 @@ object Enforcer {
                 EnforcementAction.ALLOW -> safeHide()
 
                 EnforcementAction.BLOCK_APP -> {
-                    val remaining = (decision.dailyLimitMinutes - decision.limitedUsedMinutes)
-                        .coerceAtLeast(0)
-                    val msg = when {
-                        decision.reason.contains("Einstellungen") ->
-                            "Die Einstellungen sind während des Schutzes gesperrt."
-                        decision.reason.contains("gesperrt") ->
+                    if (decision.reason.contains("Einstellungen")) {
+                        // Don't just cover Settings — eject the child to the home
+                        // screen so they can't reach the toggle that would disable
+                        // us. Then hide any overlay.
+                        AppMonitorAccessibilityService.bounceHome()
+                        safeHide()
+                    } else {
+                        val remaining = (decision.dailyLimitMinutes - decision.limitedUsedMinutes)
+                            .coerceAtLeast(0)
+                        val msg = if (decision.reason.contains("gesperrt")) {
                             "Diese App ist von deinen Eltern gesperrt."
-                        else ->
+                        } else {
                             "Tageslimit erreicht ($remaining Min. übrig). Komm morgen wieder!"
+                        }
+                        runCatching { overlay?.showBlock("Limit erreicht", msg) }
                     }
-                    runCatching { overlay?.showBlock("Limit erreicht", msg) }
                 }
 
                 EnforcementAction.LOCK_DEVICE -> {

@@ -47,10 +47,22 @@ object LimitEvaluator {
     /** Substrings identifying the phone/dialer so emergency calls always work. */
     private val PHONE_HINTS = listOf(".dialer", ".phone", ".incallui", "com.android.server.telecom")
 
-    /** Android system-settings packages we block once protection is on. */
+    /**
+     * Settings / permission-manager packages we block once protection is on, so
+     * the child can't disable our overlay or accessibility service. Covers stock
+     * Android plus the common OEM security/permission apps.
+     */
     private val SETTINGS_PACKAGES = setOf(
         "com.android.settings",
         "com.android.settings.intelligence",
+        "com.android.permissioncontroller",
+        "com.google.android.permissioncontroller",
+        "com.miui.securitycenter",            // Xiaomi
+        "com.coloros.safecenter",             // Oppo/Realme (older)
+        "com.oplus.safecenter",               // Oppo/Realme (newer)
+        "com.oppo.safe",
+        "com.samsung.android.settings",       // Samsung
+        "com.samsung.android.sm",             // Samsung device care
     )
 
     fun evaluate(

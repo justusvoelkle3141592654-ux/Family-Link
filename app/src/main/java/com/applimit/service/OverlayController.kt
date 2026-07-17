@@ -96,13 +96,85 @@ class OverlayController(private val context: Context) {
         TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), context.resources.displayMetrics,
     ).toInt()
 
-    private fun buildView(title: String, message: String, fullLock: Boolean): View {
+    private fun buildView(title: String, message: String, fullLock: Boolean): View =
+        if (fullLock) buildFullLock(title, message) else buildBlock(title, message)
+
+    /**
+     * Family-Link-style full-screen lock: a calm blue gradient, a big glyph in a
+     * soft circle, the reason, and two clear actions (Phone + open App-Limit).
+     */
+    private fun buildFullLock(title: String, message: String): View {
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(32), dp(32), dp(32), dp(32))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.parseColor("#12245C"), Color.parseColor("#0A84FF")),
+            )
+        }
+
+        val iconCircle = TextView(context).apply {
+            text = "🔒"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 46f)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+            val s = dp(112)
+            layoutParams = LinearLayout.LayoutParams(s, s)
+        }
+        val titleView = TextView(context).apply {
+            tag = TAG_TITLE
+            text = title
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+            gravity = Gravity.CENTER
+            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+            setPadding(0, dp(24), 0, 0)
+        }
+        val messageView = TextView(context).apply {
+            tag = TAG_MESSAGE
+            text = message
+            setTextColor(Color.parseColor("#DCE6F7"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            gravity = Gravity.CENTER
+            setLineSpacing(dp(4).toFloat(), 1f)
+            setPadding(dp(8), dp(12), dp(8), dp(28))
+        }
+
+        root.addView(iconCircle)
+        root.addView(titleView)
+        root.addView(messageView)
+        root.addView(pillButton("📞  Telefon öffnen", Color.parseColor("#34C759"), Color.WHITE) {
+            startExternal(Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        })
+        root.addView(pillButton("App-Limit öffnen", Color.WHITE, Color.parseColor("#0A84FF")) {
+            startExternal(
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        })
+        val brand = TextView(context).apply {
+            text = "App-Limit"
+            setTextColor(Color.parseColor("#99FFFFFF"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(28), 0, 0)
+        }
+        root.addView(brand)
+        return root
+    }
+
+    /** Lighter blocking card shown over a single limited/blocked app. */
+    private fun buildBlock(title: String, message: String): View {
         val root = FrameLayout(context).apply {
             setBackgroundColor(Color.parseColor("#F2F2F7"))
             isClickable = true
             isFocusable = true
         }
-
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -114,13 +186,12 @@ class OverlayController(private val context: Context) {
             layoutParams = FrameLayout.LayoutParams(dp(320), FrameLayout.LayoutParams.WRAP_CONTENT)
                 .apply { gravity = Gravity.CENTER }
         }
-
-        val icon = TextView(context).apply {
-            text = if (fullLock) "🔒" else "⏰"
+        card.addView(TextView(context).apply {
+            text = "⏰"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
             gravity = Gravity.CENTER
-        }
-        val titleView = TextView(context).apply {
+        })
+        card.addView(TextView(context).apply {
             tag = TAG_TITLE
             text = title
             setTextColor(Color.parseColor("#1C1C1E"))
@@ -128,51 +199,32 @@ class OverlayController(private val context: Context) {
             gravity = Gravity.CENTER
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setPadding(0, dp(8), 0, 0)
-        }
-        val messageView = TextView(context).apply {
+        })
+        card.addView(TextView(context).apply {
             tag = TAG_MESSAGE
             text = message
             setTextColor(Color.parseColor("#8E8E93"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
             setPadding(0, dp(12), 0, 0)
-        }
-
-        card.addView(icon)
-        card.addView(titleView)
-        card.addView(messageView)
-
-        if (fullLock) {
-            card.addView(pillButton("📞 Telefon öffnen", Color.parseColor("#34C759")) {
-                startExternal(
-                    Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            })
-            card.addView(pillButton("App-Limit öffnen", Color.parseColor("#0A84FF")) {
-                startExternal(
-                    Intent(context, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            })
-        }
-
+        })
         root.addView(card)
         return root
     }
 
-    private fun pillButton(label: String, color: Int, onClick: () -> Unit): Button {
+    private fun pillButton(label: String, bg: Int, textColor: Int, onClick: () -> Unit): Button {
         return Button(context).apply {
             text = label
             isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            stateListAnimator = null
             background = GradientDrawable().apply {
-                setColor(color)
-                cornerRadius = dp(14).toFloat()
+                setColor(bg)
+                cornerRadius = dp(16).toFloat()
             }
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(50),
-            ).apply { topMargin = dp(12) }
+            val lp = LinearLayout.LayoutParams(dp(300), dp(54)).apply { topMargin = dp(14) }
             layoutParams = lp
             setOnClickListener { onClick() }
         }
