@@ -21,8 +21,26 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    // A single, committed signing key so every CI build (debug and release) is
+    // signed identically. Without this, GitHub's runner would generate a random
+    // debug key each build and Android would refuse to update the installed app
+    // ("Paket in Konflikt mit einem bestehenden Paket"). This key is only for
+    // sideloading a personal parental-control build — it is not a Play Store key.
+    signingConfigs {
+        create("shared") {
+            storeFile = file("applimit-shared.keystore")
+            storePassword = "applimit"
+            keyAlias = "applimit"
+            keyPassword = "applimit"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
+            signingConfig = signingConfigs.getByName("shared")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
