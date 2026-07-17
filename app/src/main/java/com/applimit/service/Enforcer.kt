@@ -49,12 +49,12 @@ object Enforcer {
         scope.launch { evaluate(context, currentPackage) }
     }
 
-    private suspend fun evaluate(context: Context, pkg: String?) = mutex.withLock {
-        val repository = repo ?: return
+    private suspend fun evaluate(context: Context, pkg: String?): Unit = mutex.withLock {
+        val repository = repo ?: return@withLock
         // Never block our own UI.
         if (pkg == context.packageName) {
             withContext(Dispatchers.Main) { overlay?.hide() }
-            return
+            return@withLock
         }
 
         val decision = repository.evaluate(pkg)
