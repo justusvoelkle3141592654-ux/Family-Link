@@ -5,6 +5,9 @@ on:
     branches: [ "claude/prompt-in-file-j1dh9v", "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,9 +33,23 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
 
-      - name: Upload debug APK
+      - name: Upload debug APK (workflow artifact)
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish APK as a downloadable release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-debug-latest
+          name: App-Limit – Debug-APK (neuester Build)
+          body: |
+            Automatisch gebaute, installierbare Debug-APK vom jeweils letzten Commit.
+
+            Installation: APK auf ein Android-Gerät (Android 10+) laden und
+            "Installation aus unbekannten Quellen" für den Browser/Dateimanager
+            erlauben. Anschließend im Onboarding die Sonderzugriffe erteilen.
+          files: app/build/outputs/apk/debug/app-debug.apk
