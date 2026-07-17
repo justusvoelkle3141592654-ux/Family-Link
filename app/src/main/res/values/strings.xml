@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">App-Limit</string>
+
+    <string name="accessibility_service_label">App-Limit Überwachung</string>
+    <string name="accessibility_service_description">Erkennt App-Wechsel, um Zeitlimits durchzusetzen und bei Erreichen des Limits ein Hinweis-Overlay anzuzeigen. Es werden keine Inhalte gespeichert oder übertragen.</string>
+
+    <string name="enforcement_channel_name">App-Limit Überwachung</string>
+    <string name="enforcement_notification_title">App-Limit ist aktiv</string>
+    <string name="enforcement_notification_text">Nutzungszeiten werden überwacht.</string>
+</resources>

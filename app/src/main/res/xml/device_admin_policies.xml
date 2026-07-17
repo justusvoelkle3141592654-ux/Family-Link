@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Device-admin policies. On a normal (non-Device-Owner) install this grants
+    force-lock (lockNow) so the full-device lock can push the phone to its
+    lockscreen. It does NOT prevent the power button or emergency calls — see
+    docs/DECISIONS.md and the comments in DeviceLockController.kt.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

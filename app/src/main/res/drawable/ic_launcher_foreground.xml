@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple clock/shield glyph on the adaptive foreground layer. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 C41.85,30 32,39.85 32,52 C32,64.15 41.85,74 54,74 C66.15,74 76,64.15 76,52 C76,39.85 66.15,30 54,30 Z M54,68 C45.16,68 38,60.84 38,52 C38,43.16 45.16,36 54,36 C62.84,36 70,43.16 70,52 C70,60.84 62.84,68 54,68 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55.5,42 L51.5,42 L51.5,53 L60.5,58.4 L62.5,55.1 L55.5,51 Z" />
+</vector>
