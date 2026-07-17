@@ -92,6 +92,35 @@ class DeviceLockController(private val context: Context) {
         )
     }
 
+    /**
+     * Anti-bypass hardening (guest profile, user switch, safe mode, factory
+     * reset).
+     *
+     * HONEST LIMITATION: these user restrictions can ONLY be applied when the
+     * app is Device Owner. On a normal install they silently do nothing — stock
+     * Android simply does not let a regular app block the guest profile or safe
+     * mode. What we CAN still do without Device Owner is block the Settings app
+     * via the overlay (see LimitEvaluator) and, as an active device admin, stay
+     * un-uninstallable until the admin is disabled. See docs/DECISIONS.md.
+     */
+    fun applyBypassRestrictions(enable: Boolean) {
+        if (!dpm.isDeviceOwnerApp(context.packageName)) return
+        val restrictions = listOf(
+            "no_add_user",          // UserManager.DISALLOW_ADD_USER
+            "no_user_switch",       // DISALLOW_USER_SWITCH
+            "no_safe_boot",         // DISALLOW_SAFE_BOOT
+            "no_factory_reset",     // DISALLOW_FACTORY_RESET
+        )
+        for (key in restrictions) {
+            try {
+                if (enable) dpm.addUserRestriction(adminComponent, key)
+                else dpm.clearUserRestriction(adminComponent, key)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "restriction $key failed", e)
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "DeviceLockController"
     }

@@ -55,6 +55,39 @@ Einstellungsseiten:
 - **Über anderen Apps anzeigen** (`SYSTEM_ALERT_WINDOW`) — Overlays
 - **Geräteadministrator** (optional) — echtes `lockNow()`
 
+## Verhalten seit der Test-Runde (wichtig)
+
+- **Schutz-Hauptschalter:** Nach der Einrichtung ist der Schutz zunächst AUS
+  (`protectionEnabled=false`). Es wird nichts gesperrt, kein Gerät gelockt –
+  so löst das Aktivieren des Geräteadministrators keine sofortige Sperre mehr
+  aus. Erst wenn die Eltern im Elternbereich „Schutz aktiv" einschalten,
+  greifen Limits, Ruhezeit und Sperre.
+- **Genaue Zeitmessung:** Die Nutzungszeit wird jetzt aus dem rohen
+  `UsageEvents`-Stream (Vordergrund→Hintergrund) berechnet statt aus den
+  aggregierten Tagesbuckets. Das behebt „Limit erreicht bei 0 Minuten".
+- **Ruhezeit:** Standard 7:00–20:00 Uhr. Außerhalb ist das Gerät gesperrt
+  (Telefon bleibt erreichbar). Im Elternbereich einstellbar.
+- **Sperrbildschirm (Family-Link-Stil):** zeigt die genutzte Zeit und hat
+  Buttons „Telefon öffnen" (Notrufe bleiben möglich) und „App-Limit öffnen".
+- **Jugendportal:** jederzeit mit Kinder-PIN erreichbar (Wochensperre standard
+  aus) und zeigt verbleibende Zeit, Limits, Ruhezeit und blockierte Apps.
+
+## Umgehungsschutz – was geht und was nicht (ehrlich)
+
+| Umgehung | Ohne Device-Owner | Mit Device-Owner |
+|----------|-------------------|------------------|
+| Android-Einstellungen öffnen (Bedienungshilfe abschalten) | Overlay blockiert die Einstellungen-App bei aktivem Schutz (kein 100%-Schutz, aber wirksam) | zusätzlich hart sperrbar |
+| App deinstallieren | Als aktiver Geräteadministrator erst nach Deaktivierung möglich | nicht deinstallierbar |
+| Gastprofil / zweites Profil | **Nicht vollständig verhinderbar** – stock Android lässt das nicht zu | `DISALLOW_ADD_USER` / `DISALLOW_USER_SWITCH` |
+| Abgesicherter Modus (Safe Boot) | **Nicht verhinderbar** – im Safe Mode laufen gar keine Fremd-Apps, also auch App-Limit nicht | `DISALLOW_SAFE_BOOT` |
+| Werksreset | – | `DISALLOW_FACTORY_RESET` |
+
+Die Device-Owner-Restriktionen werden automatisch angewandt, sobald die App
+Device Owner ist (`applyBypassRestrictions`). Auf einem normalen Gerät sind sie
+ein harmloser No-Op. Vollständiger, Family-Link-gleicher Schutz gegen Gastprofil
+und Safe-Mode ist **technisch nur als Device Owner** möglich – das erfordert die
+Einrichtung auf einem frisch zurückgesetzten Gerät (QR-/NFC-Provisionierung).
+
 ## Sicherheit der PINs
 
 PINs werden nie im Klartext gespeichert. Es wird ein zufälliger Salt plus ein

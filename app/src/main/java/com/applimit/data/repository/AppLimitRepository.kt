@@ -62,13 +62,18 @@ class AppLimitRepository private constructor(
             val apps = dao.getAll()
             val settings = settingsStore.current()
             val usage = usageReader.foregroundMillisSinceMidnight()
-            LimitEvaluator.evaluate(foregroundPackage, usage, apps, settings)
+            val now = LocalDateTime.now()
+            val minuteOfDay = now.hour * 60 + now.minute
+            LimitEvaluator.evaluate(foregroundPackage, usage, apps, settings, minuteOfDay)
         }
 
     // ----- Weekly open gating (Punkt 1) -----
 
     suspend fun canChildOpenNow(): Boolean {
         val settings = settingsStore.current()
+        // The youth portal is always reachable unless the parent explicitly
+        // turned on the once-per-week lock.
+        if (!settings.weeklyLockEnabled) return true
         return WeeklyAccess.canChildOpen(settings, LocalDateTime.now())
     }
 

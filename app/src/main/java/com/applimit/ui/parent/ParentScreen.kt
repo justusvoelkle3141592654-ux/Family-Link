@@ -26,6 +26,7 @@ import com.applimit.ui.components.IosCard
 import com.applimit.ui.components.IosPrimaryButton
 import com.applimit.ui.components.IosRow
 import com.applimit.ui.components.IosSectionHeader
+import com.applimit.ui.components.IosSwitch
 import com.applimit.ui.theme.AppLimitColors
 
 private enum class ParentTab { DASHBOARD, CATEGORIES, LIMITS }
@@ -43,6 +44,7 @@ fun ParentScreen(
     when (tab) {
         ParentTab.DASHBOARD -> Dashboard(
             state = state,
+            onToggleProtection = { vm.setProtectionEnabled(it) },
             onCategories = { vm.loadInstalledApps(); tab = ParentTab.CATEGORIES },
             onLimits = { tab = ParentTab.LIMITS },
             onOnboarding = onOpenOnboarding,
@@ -60,6 +62,9 @@ fun ParentScreen(
             onDailyLimit = vm::setDailyLimit,
             onFullLockMinutes = vm::setFullLockMinutes,
             onCountAll = vm::setFullLockCountsAllApps,
+            onQuietTimeEnabled = vm::setQuietTimeEnabled,
+            onUsageWindow = vm::setUsageWindow,
+            onWeeklyLockEnabled = vm::setWeeklyLockEnabled,
             onWeeklyWindow = vm::setWeeklyWindow,
             onBack = { tab = ParentTab.DASHBOARD },
         )
@@ -69,6 +74,7 @@ fun ParentScreen(
 @Composable
 private fun Dashboard(
     state: com.applimit.ui.MainUiState,
+    onToggleProtection: (Boolean) -> Unit,
     onCategories: () -> Unit,
     onLimits: () -> Unit,
     onOnboarding: () -> Unit,
@@ -94,6 +100,20 @@ private fun Dashboard(
             color = AppLimitColors.Label,
             modifier = Modifier.padding(horizontal = 4.dp),
         )
+
+        IosSectionHeader("Schutz")
+        IosCard {
+            IosRow(
+                title = if (state.settings.protectionEnabled) "Schutz aktiv" else "Schutz inaktiv (Einrichtung)",
+                subtitle = if (state.settings.protectionEnabled)
+                    "Limits, Sperre & Ruhezeit sind aktiv."
+                else
+                    "Nichts wird gesperrt. Zum Aktivieren einschalten, wenn alles eingerichtet ist.",
+                trailing = {
+                    IosSwitch(state.settings.protectionEnabled) { onToggleProtection(it) }
+                },
+            )
+        }
 
         IosSectionHeader("Nutzung heute")
         IosCard {

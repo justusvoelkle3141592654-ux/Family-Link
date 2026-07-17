@@ -174,6 +174,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.settingsStore.setWeeklyWindow(dayOfWeek, startHour, endHour) }
     }
 
+    /** Master switch: turn the whole protection on/off (setup mode when off). */
+    fun setProtectionEnabled(value: Boolean) {
+        viewModelScope.launch {
+            repo.settingsStore.setProtectionEnabled(value)
+            if (!value) com.applimit.service.Enforcer.clearOverlay()
+        }
+    }
+
+    fun setQuietTimeEnabled(value: Boolean) {
+        viewModelScope.launch { repo.settingsStore.setQuietTimeEnabled(value) }
+    }
+
+    fun setUsageWindow(startHour: Int, endHour: Int) {
+        viewModelScope.launch { repo.settingsStore.setUsageWindow(startHour, endHour) }
+    }
+
+    fun setWeeklyLockEnabled(value: Boolean) {
+        viewModelScope.launch { repo.settingsStore.setWeeklyLockEnabled(value) }
+    }
+
     fun emergencyReset() {
         viewModelScope.launch {
             repo.parentEmergencyReset()

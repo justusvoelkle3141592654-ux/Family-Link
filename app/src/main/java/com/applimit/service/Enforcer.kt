@@ -14,9 +14,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Shared enforcement brain used by both the AccessibilityService (event-driven)
- * and the EnforcementService (time-driven). Keeps the currently foregrounded
- * package and applies the [com.applimit.domain.LimitEvaluator] decision by
- * showing/hiding the overlay or triggering the device lock.
+ * and the EnforcementService (time-driven). Everything here is wrapped in
+ * try/catch so a single failure can never crash the host process.
  */
 object Enforcer {
 
@@ -31,29 +30,31 @@ object Enforcer {
     private var repo: AppLimitRepository? = null
 
     fun init(context: Context) {
-        if (repo == null) repo = AppLimitRepository.get(context)
-        if (overlay == null) overlay = OverlayController(context)
-        if (lock == null) lock = DeviceLockController(context)
+        val app = context.applicationContext
+        if (repo == null) repo = AppLimitRepository.get(app)
+        if (overlay == null) overlay = OverlayController(app)
+        if (lock == null) lock = DeviceLockController(app)
     }
 
-    /** Called by the accessibility service on every foreground app change. */
     fun onForegroundChanged(context: Context, pkg: String?) {
         init(context)
         currentPackage = pkg
-        scope.launch { evaluate(context, pkg) }
+        val app = context.applicationContext
+        scope.launch { runCatching { evaluate(app, pkg) }.onFailure { Log.e(TAG, "evaluate failed", it) } }
     }
 
-    /** Called periodically by the enforcement service to catch time-based limits. */
     fun recheck(context: Context) {
         init(context)
-        scope.launch { evaluate(context, currentPackage) }
+        val app = context.applicationContext
+        scope.launch { runCatching { evaluate(app, currentPackage) }.onFailure { Log.e(TAG, "recheck failed", it) } }
     }
 
     private suspend fun evaluate(context: Context, pkg: String?): Unit = mutex.withLock {
         val repository = repo ?: return@withLock
-        // Never block our own UI.
+
+        // Never block our own youth/parent portal.
         if (pkg == context.packageName) {
-            withContext(Dispatchers.Main) { overlay?.hide() }
+            withContext(Dispatchers.Main) { safeHide() }
             return@withLock
         }
 
@@ -62,40 +63,51 @@ object Enforcer {
 
         withContext(Dispatchers.Main) {
             when (decision.action) {
-                EnforcementAction.ALLOW -> overlay?.hide()
+                EnforcementAction.ALLOW -> safeHide()
 
                 EnforcementAction.BLOCK_APP -> {
                     val remaining = (decision.dailyLimitMinutes - decision.limitedUsedMinutes)
                         .coerceAtLeast(0)
-                    val msg = if (decision.reason.contains("gesperrt")) {
-                        "Diese App ist von deinen Eltern gesperrt."
-                    } else {
-                        "Tageslimit erreicht ($remaining Min. übrig). " +
-                            "Komm morgen wieder!"
+                    val msg = when {
+                        decision.reason.contains("Einstellungen") ->
+                            "Die Einstellungen sind während des Schutzes gesperrt."
+                        decision.reason.contains("gesperrt") ->
+                            "Diese App ist von deinen Eltern gesperrt."
+                        else ->
+                            "Tageslimit erreicht ($remaining Min. übrig). Komm morgen wieder!"
                     }
-                    overlay?.showBlock("Limit erreicht", msg)
+                    runCatching { overlay?.showBlock("Limit erreicht", msg) }
                 }
 
                 EnforcementAction.LOCK_DEVICE -> {
-                    // Persist the tripped state so it survives restarts until the
-                    // midnight reset (or a parent emergency reset).
-                    repository.settingsStore.setDeviceLockedToday(true)
-                    // Try the strongest available lock, then also show the overlay
-                    // as the honest fallback (overlay-only devices).
-                    val level = lock?.enforceFullLock()
-                    overlay?.showFullLock(
-                        "Gerät gesperrt",
-                        "Die tägliche Gesamt-Nutzungszeit ist aufgebraucht." +
-                            if (level == DeviceLockController.LockLevel.OVERLAY_ONLY) {
-                                "\n(Overlay-Sperre)"
-                            } else "",
-                    )
+                    // Persist only for the hard daily budget, not for Ruhezeit
+                    // (which clears itself once the window reopens).
+                    if (decision.persistentLock) {
+                        runCatching { repository.settingsStore.setDeviceLockedToday(true) }
+                    }
+                    val level = runCatching { lock?.enforceFullLock() }.getOrNull()
+                    val isRuhezeit = decision.reason.contains("Ruhezeit")
+                    val title = if (isRuhezeit) "Ruhezeit" else "Gerät gesperrt"
+                    val body = if (isRuhezeit) {
+                        "Jetzt ist Ruhezeit. Die Apps sind bis zum nächsten Zeitfenster gesperrt."
+                    } else {
+                        "Die tägliche Gesamt-Nutzungszeit ist aufgebraucht " +
+                            "(${decision.totalUsedMinutes} Min.)."
+                    }
+                    val suffix = if (level == DeviceLockController.LockLevel.OVERLAY_ONLY) {
+                        "\n(Overlay-Sperre)"
+                    } else ""
+                    runCatching { overlay?.showFullLock(title, body + suffix) }
                 }
             }
         }
     }
 
+    private fun safeHide() {
+        runCatching { overlay?.hide() }
+    }
+
     fun clearOverlay() {
-        overlay?.hide()
+        safeHide()
     }
 }

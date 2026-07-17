@@ -1,30 +1,34 @@
 package com.applimit.service
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.TypedValue
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
+import com.applimit.MainActivity
 
 /**
  * Draws / removes the blocking overlay via SYSTEM_ALERT_WINDOW (Prompt Punkt 4).
  *
- * The overlay is fully opaque and consumes touches, so the app underneath is
- * effectively unusable. Two variants:
- *   - showBlock(): covers the current limited/blocked app with a message.
- *   - showFullLock(): full-device overlay lock when the total budget is hit.
+ * Two variants:
+ *   - showBlock():    a message card over a single limited/blocked app.
+ *   - showFullLock(): a full-screen lock (budget reached / Ruhezeit) with two
+ *                     actions, à la Family Link: open the Phone app (emergency
+ *                     calls stay possible) and open the App-Limit portal (PIN).
  *
- * Honest limitation: an overlay cannot intercept the hardware power button or
- * emergency dialer (see DeviceLockController). For that a Device-Owner Lock-Task
- * setup is required.
+ * Everything is wrapped defensively so a WindowManager hiccup can never crash
+ * the hosting service.
  */
 class OverlayController(private val context: Context) {
 
@@ -35,20 +39,17 @@ class OverlayController(private val context: Context) {
 
     fun canDrawOverlays(): Boolean = Settings.canDrawOverlays(context)
 
-    fun showBlock(title: String, message: String) {
-        show(title, message, fullLock = false)
-    }
+    fun showBlock(title: String, message: String) = show(title, message, fullLock = false)
 
-    fun showFullLock(title: String, message: String) {
-        show(title, message, fullLock = true)
-    }
+    fun showFullLock(title: String, message: String) = show(title, message, fullLock = true)
 
     private fun show(title: String, message: String, fullLock: Boolean) {
         if (!canDrawOverlays()) return
-        // Already showing? Just update the texts.
+
+        // Already showing? Just refresh the texts instead of re-adding.
         overlayView?.let { existing ->
-            existing.findViewById<TextView>(ID_TITLE)?.text = title
-            existing.findViewById<TextView>(ID_MESSAGE)?.text = message
+            (existing.findViewWithTag<TextView>(TAG_TITLE))?.text = title
+            (existing.findViewWithTag<TextView>(TAG_MESSAGE))?.text = message
             return
         }
 
@@ -59,27 +60,31 @@ class OverlayController(private val context: Context) {
             WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
         }
 
+        // Focusable so we can also swallow the Back key while blocking; buttons
+        // remain tappable because the view is touchable (no NOT_TOUCHABLE flag).
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             type,
-            // FLAG_NOT_FOCUSABLE is intentionally NOT set so the overlay can also
-            // swallow the back key while it is showing.
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
             PixelFormat.OPAQUE,
         ).apply { gravity = Gravity.CENTER }
 
         val view = buildView(title, message, fullLock)
-        overlayView = view
-        windowManager.addView(view, params)
+        try {
+            windowManager.addView(view, params)
+            overlayView = view
+        } catch (_: Exception) {
+            overlayView = null
+        }
     }
 
     fun hide() {
         overlayView?.let {
             try {
                 windowManager.removeView(it)
-            } catch (_: IllegalArgumentException) {
-                // already removed
+            } catch (_: Exception) {
+                // already gone
             }
         }
         overlayView = null
@@ -87,61 +92,105 @@ class OverlayController(private val context: Context) {
 
     fun isShowing(): Boolean = overlayView != null
 
-    /**
-     * Built programmatically (no XML dependency) so the service stays
-     * self-contained. Styled to match the light iOS look of the app.
-     */
-    private fun buildView(title: String, message: String, fullLock: Boolean): View {
-        val density = context.resources.displayMetrics.density
-        fun dp(v: Int) = (v * density).toInt()
+    private fun dp(v: Int): Int = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), context.resources.displayMetrics,
+    ).toInt()
 
+    private fun buildView(title: String, message: String, fullLock: Boolean): View {
         val root = FrameLayout(context).apply {
-            setBackgroundColor(if (fullLock) Color.parseColor("#F2F2F7") else Color.parseColor("#E6F2F2F7"))
-            isClickable = true // swallow touches
+            setBackgroundColor(Color.parseColor("#F2F2F7"))
+            isClickable = true
             isFocusable = true
         }
 
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.WHITE)
-            setPadding(dp(28), dp(32), dp(28), dp(32))
-            val lp = FrameLayout.LayoutParams(dp(300), FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(20).toFloat()
             }
-            layoutParams = lp
+            setPadding(dp(28), dp(32), dp(28), dp(28))
+            layoutParams = FrameLayout.LayoutParams(dp(320), FrameLayout.LayoutParams.WRAP_CONTENT)
+                .apply { gravity = Gravity.CENTER }
         }
 
+        val icon = TextView(context).apply {
+            text = if (fullLock) "🔒" else "⏰"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
+            gravity = Gravity.CENTER
+        }
         val titleView = TextView(context).apply {
-            id = ID_TITLE
+            tag = TAG_TITLE
             text = title
             setTextColor(Color.parseColor("#1C1C1E"))
-            textSize = 20f
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             gravity = Gravity.CENTER
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, dp(8), 0, 0)
         }
         val messageView = TextView(context).apply {
-            id = ID_MESSAGE
+            tag = TAG_MESSAGE
             text = message
             setTextColor(Color.parseColor("#8E8E93"))
-            textSize = 15f
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
             setPadding(0, dp(12), 0, 0)
         }
 
+        card.addView(icon)
         card.addView(titleView)
         card.addView(messageView)
+
+        if (fullLock) {
+            card.addView(pillButton("📞 Telefon öffnen", Color.parseColor("#34C759")) {
+                startExternal(
+                    Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            })
+            card.addView(pillButton("App-Limit öffnen", Color.parseColor("#0A84FF")) {
+                startExternal(
+                    Intent(context, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            })
+        }
+
         root.addView(card)
-        // Give the card rounded corners programmatically.
-        card.background = ContextCompat.getDrawable(context, android.R.color.white)
         return root
     }
 
+    private fun pillButton(label: String, color: Int, onClick: () -> Unit): Button {
+        return Button(context).apply {
+            text = label
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            background = GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = dp(14).toFloat()
+            }
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50),
+            ).apply { topMargin = dp(12) }
+            layoutParams = lp
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun startExternal(intent: Intent) {
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            // ignore – e.g. no dialer present
+        }
+    }
+
     companion object {
-        private val ID_TITLE = View.generateViewId()
-        private val ID_MESSAGE = View.generateViewId()
+        private const val TAG_TITLE = "overlay_title"
+        private const val TAG_MESSAGE = "overlay_message"
 
         @Suppress("unused")
-        private fun unusedInflaterHint(context: Context) = LayoutInflater.from(context)
+        private fun overlayUri(context: Context): Uri = Uri.parse("package:${context.packageName}")
     }
 }

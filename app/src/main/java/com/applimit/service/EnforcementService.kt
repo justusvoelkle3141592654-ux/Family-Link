@@ -60,16 +60,22 @@ class EnforcementService : Service() {
 
     private suspend fun monitorLoop() {
         val repo = AppLimitRepository.get(this)
+        val lockController = DeviceLockController(this)
         while (scope.isActive) {
-            maybeMidnightReset(repo)
-            Enforcer.recheck(this)
+            runCatching {
+                val settings = repo.settingsStore.current()
+                maybeMidnightReset(repo, settings)
+                // Apply/lift anti-bypass restrictions (only effective as Device
+                // Owner; a harmless no-op otherwise).
+                lockController.applyBypassRestrictions(settings.protectionEnabled)
+                Enforcer.recheck(this)
+            }
             delay(CHECK_INTERVAL_MS)
         }
     }
 
     /** Clears the day's counters/flags once when the local date changes. */
-    private suspend fun maybeMidnightReset(repo: AppLimitRepository) {
-        val settings = repo.settingsStore.current()
+    private suspend fun maybeMidnightReset(repo: AppLimitRepository, settings: com.applimit.data.prefs.AppSettings) {
         if (!settings.autoResetAtMidnight) return
         val today = LocalDate.now().dayOfYear
         if (settings.lastResetDayOfYear != today) {
@@ -107,7 +113,9 @@ class EnforcementService : Service() {
     companion object {
         private const val NOTIF_ID = 42
         private const val CHANNEL_ID = "applimit_enforcement"
-        private const val CHECK_INTERVAL_MS = 20_000L
+        // Check often so limits/Ruhezeit take effect quickly even when the
+        // child just stays inside one already-open app (no window events).
+        private const val CHECK_INTERVAL_MS = 5_000L
 
         fun start(context: Context) {
             val intent = Intent(context, EnforcementService::class.java)

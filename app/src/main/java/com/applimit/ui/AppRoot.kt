@@ -51,6 +51,7 @@ fun AppRoot(vm: MainViewModel = viewModel()) {
         Screen.HOME -> HomeScreen(
             decision = state.childDecision,
             managedApps = state.managedApps,
+            settings = state.settings,
             onRefresh = vm::loadChildDecision,
         )
 

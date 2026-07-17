@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
 import com.applimit.data.db.AppCategory
 import com.applimit.data.db.ManagedApp
+import com.applimit.data.prefs.AppSettings
 import com.applimit.domain.LimitDecision
 import com.applimit.ui.components.IosCard
 import com.applimit.ui.components.IosRow
@@ -43,6 +44,7 @@ import com.applimit.ui.theme.AppLimitColors
 fun HomeScreen(
     decision: LimitDecision?,
     managedApps: List<ManagedApp>,
+    settings: AppSettings,
     onRefresh: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onRefresh() }
@@ -84,6 +86,37 @@ fun HomeScreen(
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
 
+        IosSectionHeader("Meine Regeln")
+        IosCard {
+            IosRow(
+                title = "Tageslimit",
+                trailing = { Text("${settings.dailyLimitMinutes} Min.", color = AppLimitColors.SecondaryLabel) },
+            )
+            Divider()
+            IosRow(
+                title = "Ruhezeit",
+                subtitle = if (settings.quietTimeEnabled)
+                    "Nutzung nur ${settings.usageWindowStartHour}:00–${settings.usageWindowEndHour}:00 Uhr"
+                else "Keine Ruhezeit",
+                trailing = {
+                    Text(
+                        if (settings.quietTimeEnabled) "aktiv" else "aus",
+                        color = AppLimitColors.SecondaryLabel,
+                    )
+                },
+            )
+            Divider()
+            IosRow(
+                title = "Schutz",
+                trailing = {
+                    Text(
+                        if (settings.protectionEnabled) "aktiv" else "inaktiv",
+                        color = if (settings.protectionEnabled) AppLimitColors.Success else AppLimitColors.SecondaryLabel,
+                    )
+                },
+            )
+        }
+
         if (limited.isNotEmpty()) {
             IosSectionHeader("Apps mit Limit")
             IosCard { limited.forEachIndexed { i, a -> AppLine(a.appName, i > 0) } }
@@ -102,10 +135,13 @@ fun HomeScreen(
 
 @Composable
 private fun AppLine(name: String, divider: Boolean) {
-    if (divider) {
-        Spacer(Modifier.fillMaxWidth().height(1.dp).background(AppLimitColors.Separator))
-    }
+    if (divider) Divider()
     IosRow(title = name)
+}
+
+@Composable
+private fun Divider() {
+    Spacer(Modifier.fillMaxWidth().height(1.dp).background(AppLimitColors.Separator))
 }
 
 @Composable
