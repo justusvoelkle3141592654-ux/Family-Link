@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.applimit.R
@@ -37,7 +38,17 @@ class EnforcementService : Service() {
     override fun onCreate() {
         super.onCreate()
         Enforcer.init(this)
-        startForeground(NOTIF_ID, buildNotification())
+        // Android 14 (API 34) requires the foreground-service type to be passed
+        // explicitly for a "specialUse" service; older versions use the 2-arg form.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIF_ID,
+                buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            )
+        } else {
+            startForeground(NOTIF_ID, buildNotification())
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
