@@ -45,6 +45,20 @@ class SecurePinStore(context: Context) {
     fun verifyChildPin(pin: String): Boolean = verify(CHILD, pin)
     fun verifyParentPin(pin: String): Boolean = verify(PARENT, pin)
 
+    /** Change the parent PIN after verifying the old one. Returns false if wrong. */
+    fun changeParentPin(oldPin: String, newPin: String): Boolean {
+        if (!verify(PARENT, oldPin)) return false
+        store(PARENT, newPin)
+        return true
+    }
+
+    /** Change the child PIN after verifying the old one. */
+    fun changeChildPin(oldPin: String, newPin: String): Boolean {
+        if (!verify(CHILD, oldPin)) return false
+        store(CHILD, newPin)
+        return true
+    }
+
     private fun store(prefix: String, pin: String) {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val hash = pbkdf2(pin, salt)

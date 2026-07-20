@@ -31,8 +31,13 @@ class AppLimitRepository private constructor(
     val managedApps: Flow<List<ManagedApp>> = dao.observeAll()
     val settings: Flow<AppSettings> = settingsStore.settings
 
-    suspend fun setCategory(pkg: String, name: String, category: AppCategory) =
-        dao.upsert(ManagedApp(pkg, name, category))
+    suspend fun setCategory(
+        pkg: String,
+        name: String,
+        category: AppCategory,
+        individualLimitMinutes: Int = 30,
+        plusCountsToGlobal: Boolean = false,
+    ) = dao.upsert(ManagedApp(pkg, name, category, individualLimitMinutes, plusCountsToGlobal))
 
     suspend fun clearCategory(pkg: String) = dao.delete(pkg)
 
@@ -67,7 +72,46 @@ class AppLimitRepository private constructor(
             LimitEvaluator.evaluate(foregroundPackage, usage, apps, settings, minuteOfDay)
         }
 
-    // ----- Weekly open gating (Punkt 1) -----
+    /**
+     * Transparent usage breakdown for the parent overview: the two headline
+     * pools plus every managed app's own consumed time.
+     */
+    suspend fun usageOverview(): UsageOverview = withContext(Dispatchers.IO) {
+        val apps = dao.getAll()
+        val settings = settingsStore.current()
+        val usage = usageReader.foregroundMillisSinceMidnight()
+        val byPkg = apps.associateBy { it.packageName }
+
+        var generalMs = 0L
+        var globalMs = 0L
+        for ((pkg, ms) in usage) {
+            val app = byPkg[pkg] ?: continue
+            when (app.category) {
+                AppCategory.LIMIT, AppCategory.STANDARD -> { generalMs += ms; globalMs += ms }
+                AppCategory.PLUS -> if (app.plusCountsToGlobal) globalMs += ms
+                AppCategory.BLOCKED -> {}
+            }
+        }
+        val appUsages = apps.map { app ->
+            AppUsage(
+                packageName = app.packageName,
+                appName = app.appName,
+                category = app.category,
+                usedSeconds = (usage[app.packageName] ?: 0L) / 1000,
+                individualLimitMinutes = if (app.category == AppCategory.LIMIT) app.individualLimitMinutes else null,
+            )
+        }.sortedByDescending { it.usedSeconds }
+
+        UsageOverview(
+            generalUsedSeconds = generalMs / 1000,
+            generalLimitSeconds = settings.generalLimitMinutes * 60L,
+            globalUsedSeconds = globalMs / 1000,
+            globalLimitSeconds = settings.globalLimitMinutes * 60L,
+            apps = appUsages,
+        )
+    }
+
+    // ----- Weekly open gating -----
 
     suspend fun canChildOpenNow(): Boolean {
         val settings = settingsStore.current()
@@ -87,10 +131,9 @@ class AppLimitRepository private constructor(
         settingsStore.setLastOpenIsoWeek(WeeklyAccess.isoWeekKey(LocalDateTime.now()))
     }
 
-    /** Emergency reset by the parent: reopen this week + clear the full lock. */
+    /** Emergency reset by the parent: reopen this week's portal gate. */
     suspend fun parentEmergencyReset() {
         settingsStore.setLastOpenIsoWeek(0)
-        settingsStore.setDeviceLockedToday(false)
     }
 
     companion object {
@@ -103,3 +146,19 @@ class AppLimitRepository private constructor(
 }
 
 data class InstalledApp(val packageName: String, val appName: String)
+
+data class AppUsage(
+    val packageName: String,
+    val appName: String,
+    val category: AppCategory,
+    val usedSeconds: Long,
+    val individualLimitMinutes: Int?,
+)
+
+data class UsageOverview(
+    val generalUsedSeconds: Long,
+    val generalLimitSeconds: Long,
+    val globalUsedSeconds: Long,
+    val globalLimitSeconds: Long,
+    val apps: List<AppUsage>,
+)

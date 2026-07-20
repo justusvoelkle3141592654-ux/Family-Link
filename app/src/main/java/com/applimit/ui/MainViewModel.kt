@@ -8,6 +8,7 @@ import com.applimit.data.db.ManagedApp
 import com.applimit.data.prefs.AppSettings
 import com.applimit.data.repository.AppLimitRepository
 import com.applimit.data.repository.InstalledApp
+import com.applimit.data.repository.UsageOverview
 import com.applimit.domain.LimitDecision
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,7 @@ data class MainUiState(
     val managedApps: List<ManagedApp> = emptyList(),
     val installedApps: List<InstalledApp> = emptyList(),
     val childDecision: LimitDecision? = null,
+    val overview: UsageOverview? = null,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -133,12 +135,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(screen = Screen.PARENT)
     }
 
-    // ----- Child home -----
+    // ----- Child home / overview -----
 
     fun loadChildDecision() {
         viewModelScope.launch {
             val decision = repo.evaluate(getApplication<Application>().packageName)
             _state.value = _state.value.copy(childDecision = decision)
+        }
+        loadOverview()
+    }
+
+    fun loadOverview() {
+        viewModelScope.launch {
+            val overview = repo.usageOverview()
+            _state.value = _state.value.copy(overview = overview)
         }
     }
 
@@ -151,24 +161,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setCategory(app: InstalledApp, category: AppCategory?) {
+    fun setCategory(
+        app: InstalledApp,
+        category: AppCategory?,
+        individualLimitMinutes: Int = 30,
+        plusCountsToGlobal: Boolean = false,
+    ) {
         viewModelScope.launch {
             if (category == null) repo.clearCategory(app.packageName)
-            else repo.setCategory(app.packageName, app.appName, category)
+            else repo.setCategory(
+                app.packageName, app.appName, category, individualLimitMinutes, plusCountsToGlobal,
+            )
         }
     }
 
-    fun setDailyLimit(minutes: Int) {
-        viewModelScope.launch { repo.settingsStore.setDailyLimit(minutes) }
+    fun setGeneralLimit(minutes: Int) {
+        viewModelScope.launch { repo.settingsStore.setGeneralLimit(minutes) }
     }
 
-    fun setFullLockMinutes(minutes: Int) {
-        viewModelScope.launch { repo.settingsStore.setFullLockMinutes(minutes) }
+    fun setGlobalLimit(minutes: Int) {
+        viewModelScope.launch { repo.settingsStore.setGlobalLimit(minutes) }
     }
 
-    fun setFullLockCountsAllApps(value: Boolean) {
-        viewModelScope.launch { repo.settingsStore.setFullLockCountsAllApps(value) }
-    }
+    /** Change the parent password (verifies the old one). Returns success. */
+    fun changeParentPassword(oldPin: String, newPin: String): Boolean =
+        repo.pinStore.changeParentPin(oldPin, newPin)
 
     fun setWeeklyWindow(dayOfWeek: Int, startHour: Int, endHour: Int) {
         viewModelScope.launch { repo.settingsStore.setWeeklyWindow(dayOfWeek, startHour, endHour) }

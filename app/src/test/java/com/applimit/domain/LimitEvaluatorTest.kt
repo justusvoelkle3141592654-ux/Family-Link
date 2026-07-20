@@ -8,109 +8,93 @@ import org.junit.Test
 
 class LimitEvaluatorTest {
 
-    private val youtube = ManagedApp("com.google.youtube", "YouTube", AppCategory.LIMITED)
-    private val games = ManagedApp("com.game.app", "Game", AppCategory.LIMITED)
-    private val school = ManagedApp("com.school.app", "School", AppCategory.PLUS)
-    private val blocked = ManagedApp("com.bad.app", "Bad", AppCategory.BLOCKED)
-    private val apps = listOf(youtube, games, school, blocked)
+    private val youtube = ManagedApp("com.yt", "YouTube", AppCategory.LIMIT, individualLimitMinutes = 30)
+    private val game = ManagedApp("com.game", "Game", AppCategory.STANDARD)
+    private val school = ManagedApp("com.school", "School", AppCategory.PLUS, plusCountsToGlobal = false)
+    private val music = ManagedApp("com.music", "Music", AppCategory.PLUS, plusCountsToGlobal = true)
+    private val bad = ManagedApp("com.bad", "Bad", AppCategory.BLOCKED)
+    private val apps = listOf(youtube, game, school, music, bad)
 
     private fun min(m: Int) = m * 60_000L
-
-    /** Protection on + inside the 7–20 usage window (12:00). */
-    private fun base() = AppSettings(protectionEnabled = true)
+    private fun base() = AppSettings(protectionEnabled = true, generalLimitMinutes = 60, globalLimitMinutes = 120)
     private val noon = 12 * 60
 
-    @Test
-    fun `protection off allows everything`() {
-        val d = LimitEvaluator.evaluate(
-            blocked.packageName, mapOf(youtube.packageName to min(999)), apps,
-            AppSettings(protectionEnabled = false), noon,
-        )
+    private fun eval(fg: String?, usage: Map<String, Long>, s: AppSettings = base(), now: Int = noon) =
+        LimitEvaluator.evaluate(fg, usage, apps, s, now)
+
+    @Test fun `protection off allows everything`() {
+        val d = eval(bad.packageName, mapOf(youtube.packageName to min(999)), AppSettings(protectionEnabled = false))
         assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
-    @Test
-    fun `limited app under limit is allowed`() {
-        val d = LimitEvaluator.evaluate(
-            youtube.packageName, mapOf(youtube.packageName to min(30)), apps,
-            base().copy(dailyLimitMinutes = 60, fullLockMinutes = 120), noon,
-        )
+    @Test fun `standard under general is allowed`() {
+        val d = eval(game.packageName, mapOf(game.packageName to min(30)))
         assertEquals(EnforcementAction.ALLOW, d.action)
-        assertEquals(30, d.limitedUsedMinutes)
     }
 
-    @Test
-    fun `limited app at daily limit is blocked`() {
-        val d = LimitEvaluator.evaluate(
-            youtube.packageName,
-            mapOf(youtube.packageName to min(45), games.packageName to min(20)),
-            apps, base().copy(dailyLimitMinutes = 60, fullLockMinutes = 300), noon,
-        )
+    @Test fun `standard blocked when general limit reached`() {
+        val d = eval(game.packageName, mapOf(game.packageName to min(45), youtube.packageName to min(20)))
+        // general = 45 + 20 = 65 >= 60
         assertEquals(EnforcementAction.BLOCK_APP, d.action)
+        assertEquals("Allgemeines Limit erreicht", d.reason)
     }
 
-    @Test
-    fun `plus app does not count against daily limit`() {
-        val d = LimitEvaluator.evaluate(
-            school.packageName, mapOf(school.packageName to min(200)), apps,
-            base().copy(dailyLimitMinutes = 60, fullLockMinutes = 300, fullLockCountsAllApps = false),
-            noon,
-        )
-        assertEquals(EnforcementAction.ALLOW, d.action)
-        assertEquals(0, d.limitedUsedMinutes)
-    }
-
-    @Test
-    fun `blocked app is always blocked`() {
-        val d = LimitEvaluator.evaluate(
-            blocked.packageName, emptyMap(), apps, base(), noon,
-        )
+    @Test fun `limit app blocked by its individual limit first`() {
+        val d = eval(youtube.packageName, mapOf(youtube.packageName to min(30)))
         assertEquals(EnforcementAction.BLOCK_APP, d.action)
+        assertEquals("Individuelles App-Limit erreicht", d.reason)
     }
 
-    @Test
-    fun `full lock trips when all apps counted`() {
-        val d = LimitEvaluator.evaluate(
-            school.packageName,
-            mapOf(school.packageName to min(90), youtube.packageName to min(40)),
-            apps, base().copy(fullLockMinutes = 120, fullLockCountsAllApps = true), noon,
-        )
-        assertEquals(EnforcementAction.LOCK_DEVICE, d.action)
+    @Test fun `limit app under all limits is allowed`() {
+        val d = eval(youtube.packageName, mapOf(youtube.packageName to min(10)))
+        assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
-    @Test
-    fun `persisted device lock keeps device locked`() {
-        val d = LimitEvaluator.evaluate(
-            school.packageName, emptyMap(), apps,
-            base().copy(deviceLockedToday = true), noon,
-        )
-        assertEquals(EnforcementAction.LOCK_DEVICE, d.action)
+    @Test fun `plus app never blocked even if global exhausted`() {
+        val s = base().copy(globalLimitMinutes = 60)
+        val d = eval(music.packageName, mapOf(music.packageName to min(500)), s)
+        assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
-    @Test
-    fun `outside usage window is Ruhezeit lock`() {
-        // 22:00 is outside the 7–20 window.
-        val d = LimitEvaluator.evaluate(
-            school.packageName, emptyMap(), apps, base(), 22 * 60,
-        )
+    @Test fun `plus counting to global can block a standard app`() {
+        val s = base().copy(generalLimitMinutes = 600, globalLimitMinutes = 120)
+        // music (PLUS, counts global) 100 + game (STANDARD) 30 → general 30, global 130
+        val d = eval(game.packageName, mapOf(music.packageName to min(100), game.packageName to min(30)), s)
+        assertEquals(EnforcementAction.BLOCK_APP, d.action)
+        assertEquals("Globales Limit erreicht", d.reason)
+    }
+
+    @Test fun `plus not counting to global does not block`() {
+        val s = base().copy(generalLimitMinutes = 600, globalLimitMinutes = 120)
+        val d = eval(game.packageName, mapOf(school.packageName to min(300), game.packageName to min(10)), s)
+        assertEquals(EnforcementAction.ALLOW, d.action)
+    }
+
+    @Test fun `blocked app is always blocked`() {
+        val d = eval(bad.packageName, emptyMap())
+        assertEquals(EnforcementAction.BLOCK_APP, d.action)
+        assertEquals("App ist gesperrt", d.reason)
+    }
+
+    @Test fun `outside window is ruhezeit lock`() {
+        val d = eval(game.packageName, emptyMap(), now = 22 * 60)
         assertEquals(EnforcementAction.LOCK_DEVICE, d.action)
         assertEquals("Ruhezeit", d.reason)
-        assertEquals(false, d.persistentLock)
     }
 
-    @Test
-    fun `phone is allowed even during ruhezeit`() {
-        val d = LimitEvaluator.evaluate(
-            "com.android.dialer", emptyMap(), apps, base(), 23 * 60,
-        )
+    @Test fun `phone allowed during ruhezeit`() {
+        val d = eval("com.android.dialer", emptyMap(), now = 23 * 60)
         assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
-    @Test
-    fun `settings app is blocked when protection on`() {
-        val d = LimitEvaluator.evaluate(
-            "com.android.settings", emptyMap(), apps, base(), noon,
-        )
+    @Test fun `settings app blocked when protection on`() {
+        val d = eval("com.android.settings", emptyMap())
         assertEquals(EnforcementAction.BLOCK_APP, d.action)
+        assertEquals("Einstellungen gesperrt", d.reason)
+    }
+
+    @Test fun `unmanaged app is allowed`() {
+        val d = eval("com.random.unmanaged", emptyMap())
+        assertEquals(EnforcementAction.ALLOW, d.action)
     }
 }

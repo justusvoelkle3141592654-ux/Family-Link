@@ -15,7 +15,7 @@ class Converters {
     fun fromCategory(category: AppCategory): String = category.name
 }
 
-@Database(entities = [ManagedApp::class], version = 1, exportSchema = false)
+@Database(entities = [ManagedApp::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppLimitDatabase : RoomDatabase() {
     abstract fun managedAppDao(): ManagedAppDao
@@ -30,7 +30,12 @@ abstract class AppLimitDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppLimitDatabase::class.java,
                     "app_limit.db",
-                ).build().also { INSTANCE = it }
+                )
+                    // The category model changed (3 → 4 categories + new fields);
+                    // wipe the old category assignments on upgrade instead of a
+                    // hand-written migration. Acceptable for this stage.
+                    .fallbackToDestructiveMigration()
+                    .build().also { INSTANCE = it }
             }
     }
 }

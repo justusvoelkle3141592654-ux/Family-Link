@@ -67,42 +67,41 @@ object Enforcer {
 
                 EnforcementAction.BLOCK_APP -> {
                     if (decision.reason.contains("Einstellungen")) {
-                        // Don't just cover Settings — eject the child to the home
-                        // screen so they can't reach the toggle that would disable
-                        // us. Then hide any overlay.
+                        // Eject the child to the home screen so they can't reach
+                        // the toggle that would disable us.
                         AppMonitorAccessibilityService.bounceHome()
                         safeHide()
                     } else {
-                        val remaining = (decision.dailyLimitMinutes - decision.limitedUsedMinutes)
-                            .coerceAtLeast(0)
-                        val msg = if (decision.reason.contains("gesperrt")) {
-                            "Diese App ist von deinen Eltern gesperrt."
-                        } else {
-                            "Tageslimit erreicht ($remaining Min. übrig). Komm morgen wieder!"
+                        val msg = when {
+                            decision.reason.contains("Individuelles") ->
+                                "Das Zeitlimit für diese App ist aufgebraucht " +
+                                    "(${decision.individualUsedSec / 60}/${decision.individualLimitSec / 60} Min.)."
+                            decision.reason.contains("Allgemeines") ->
+                                "Dein allgemeines Zeitlimit ist aufgebraucht " +
+                                    "(${decision.generalUsedSec / 60}/${decision.generalLimitSec / 60} Min.)."
+                            decision.reason.contains("Globales") ->
+                                "Deine gesamte Bildschirmzeit ist aufgebraucht " +
+                                    "(${decision.globalUsedSec / 60}/${decision.globalLimitSec / 60} Min.)."
+                            else ->
+                                "Diese App ist von deinen Eltern gesperrt."
                         }
-                        runCatching { overlay?.showBlock("Limit erreicht", msg) }
+                        runCatching { overlay?.showBlock(decision.reason, msg) }
                     }
                 }
 
                 EnforcementAction.LOCK_DEVICE -> {
-                    // Persist only for the hard daily budget, not for Ruhezeit
-                    // (which clears itself once the window reopens).
-                    if (decision.persistentLock) {
-                        runCatching { repository.settingsStore.setDeviceLockedToday(true) }
-                    }
+                    // Only Ruhezeit reaches this; it clears itself when the window
+                    // reopens, so nothing is persisted.
                     val level = runCatching { lock?.enforceFullLock() }.getOrNull()
-                    val isRuhezeit = decision.reason.contains("Ruhezeit")
-                    val title = if (isRuhezeit) "Ruhezeit" else "Gerät gesperrt"
-                    val body = if (isRuhezeit) {
-                        "Jetzt ist Ruhezeit. Die Apps sind bis zum nächsten Zeitfenster gesperrt."
-                    } else {
-                        "Die tägliche Gesamt-Nutzungszeit ist aufgebraucht " +
-                            "(${decision.totalUsedMinutes} Min.)."
-                    }
                     val suffix = if (level == DeviceLockController.LockLevel.OVERLAY_ONLY) {
                         "\n(Overlay-Sperre)"
                     } else ""
-                    runCatching { overlay?.showFullLock(title, body + suffix) }
+                    runCatching {
+                        overlay?.showFullLock(
+                            "Ruhezeit",
+                            "Jetzt ist Ruhezeit. Die Apps sind bis zum nächsten Zeitfenster gesperrt.$suffix",
+                        )
+                    }
                 }
             }
         }

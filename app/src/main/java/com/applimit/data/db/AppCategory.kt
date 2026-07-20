@@ -1,17 +1,23 @@
 package com.applimit.data.db
 
 /**
- * The three app categories the parent assigns (Prompt Punkt 2).
+ * The four app categories the parent assigns.
  *
- *  - PLUS    : freely usable, does NOT count against the daily limit.
- *  - LIMITED : counts against the shared daily limit.
- *  - BLOCKED : generally not usable (always blocked by overlay).
+ *  - BLOCKED  : always locked, overlay appears immediately, counts to no limit.
+ *  - PLUS      : "Zugelassen Plus" – never blocked. Does NOT count to the general
+ *               limit. Counts to the GLOBAL limit only if [ManagedApp.plusCountsToGlobal].
+ *  - LIMIT     : has its own individual daily limit ([ManagedApp.individualLimitMinutes]).
+ *               Counts to BOTH the general and the global limit. Blocked when the
+ *               individual OR general OR global limit is reached.
+ *  - STANDARD  : counts to BOTH general and global limit. Blocked when the general
+ *               OR global limit is reached.
  *
- * DECISION: the BLOCKED category is included by default (the brief described
- * three categories in Punkt 2). It can simply stay empty if unwanted.
+ * Apps not present in the table are treated as unmanaged → always allowed and
+ * counted to nothing (so a freshly installed app never surprise-locks the phone).
  */
 enum class AppCategory {
-    PLUS,
-    LIMITED,
     BLOCKED,
+    PLUS,
+    LIMIT,
+    STANDARD,
 }

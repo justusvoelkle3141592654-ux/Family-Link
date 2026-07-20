@@ -17,7 +17,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 
 /**
  * Foreground service that (a) keeps the app alive to host the overlay and
@@ -61,29 +60,21 @@ class EnforcementService : Service() {
     private suspend fun monitorLoop() {
         val repo = AppLimitRepository.get(this)
         val lockController = DeviceLockController(this)
+        var restrictionTick = 0
         while (scope.isActive) {
             runCatching {
-                val settings = repo.settingsStore.current()
-                maybeMidnightReset(repo, settings)
-                // Apply/lift anti-bypass restrictions (only effective as Device
-                // Owner; a harmless no-op otherwise).
-                lockController.applyBypassRestrictions(settings.protectionEnabled)
+                // Re-evaluate every second so a limit that runs out mid-app
+                // triggers the overlay on the second, not up to 20s later.
                 Enforcer.recheck(this)
+                // Anti-bypass restrictions rarely change; refresh them every ~30s
+                // (only effective as Device Owner, otherwise a harmless no-op).
+                if (restrictionTick % 30 == 0) {
+                    val settings = repo.settingsStore.current()
+                    lockController.applyBypassRestrictions(settings.protectionEnabled)
+                }
+                restrictionTick++
             }
             delay(CHECK_INTERVAL_MS)
-        }
-    }
-
-    /** Clears the day's counters/flags once when the local date changes. */
-    private suspend fun maybeMidnightReset(repo: AppLimitRepository, settings: com.applimit.data.prefs.AppSettings) {
-        if (!settings.autoResetAtMidnight) return
-        val today = LocalDate.now().dayOfYear
-        if (settings.lastResetDayOfYear != today) {
-            repo.settingsStore.setDeviceLockedToday(false)
-            repo.settingsStore.setLastResetDayOfYear(today)
-            // Usage numbers themselves come from UsageStatsManager scoped to
-            // "since midnight", so they reset automatically with the clock.
-            Enforcer.clearOverlay()
         }
     }
 
@@ -113,9 +104,9 @@ class EnforcementService : Service() {
     companion object {
         private const val NOTIF_ID = 42
         private const val CHANNEL_ID = "applimit_enforcement"
-        // Check often so limits/Ruhezeit take effect quickly even when the
-        // child just stays inside one already-open app (no window events).
-        private const val CHECK_INTERVAL_MS = 5_000L
+        // 1 s cadence → second-accurate enforcement even inside an already-open
+        // app (accessibility only fires on window changes).
+        private const val CHECK_INTERVAL_MS = 1_000L
 
         fun start(context: Context) {
             val intent = Intent(context, EnforcementService::class.java)

@@ -49,13 +49,18 @@ fun HomeScreen(
 ) {
     LaunchedEffect(Unit) { onRefresh() }
 
-    val used = decision?.limitedUsedMinutes ?: 0
-    val limit = decision?.dailyLimitMinutes ?: 60
-    val remaining = (limit - used).coerceAtLeast(0)
-    val progress = if (limit > 0) (used.toFloat() / limit).coerceIn(0f, 1f) else 0f
+    // The ring tracks the general limit (normal usage pool).
+    val usedMin = ((decision?.generalUsedSec ?: 0) / 60).toInt()
+    val limitMin = ((decision?.generalLimitSec ?: (settings.generalLimitMinutes * 60L)) / 60).toInt()
+    val remaining = (limitMin - usedMin).coerceAtLeast(0)
+    val progress = if (limitMin > 0) (usedMin.toFloat() / limitMin).coerceIn(0f, 1f) else 0f
+
+    val globalUsedMin = ((decision?.globalUsedSec ?: 0) / 60).toInt()
+    val globalLimitMin = ((decision?.globalLimitSec ?: (settings.globalLimitMinutes * 60L)) / 60).toInt()
 
     val plus = managedApps.filter { it.category == AppCategory.PLUS }
-    val limited = managedApps.filter { it.category == AppCategory.LIMITED }
+    val limited = managedApps.filter { it.category == AppCategory.LIMIT }
+    val standard = managedApps.filter { it.category == AppCategory.STANDARD }
     val blocked = managedApps.filter { it.category == AppCategory.BLOCKED }
 
     Column(
@@ -79,18 +84,25 @@ fun HomeScreen(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "von $limit Min. Tageslimit übrig",
+            "von $limitMin Min. allgemeinem Limit übrig",
             color = AppLimitColors.SecondaryLabel,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.fillMaxWidth(),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
 
-        IosSectionHeader("Meine Regeln")
+        IosSectionHeader("Meine Zeit")
         IosCard {
             IosRow(
-                title = "Tageslimit",
-                trailing = { Text("${settings.dailyLimitMinutes} Min.", color = AppLimitColors.SecondaryLabel) },
+                title = "Allgemeines Limit",
+                subtitle = "Normale Nutzung",
+                trailing = { Text("$usedMin / $limitMin Min.", color = AppLimitColors.SecondaryLabel) },
+            )
+            Divider()
+            IosRow(
+                title = "Gesamte Bildschirmzeit",
+                subtitle = "Globales Limit",
+                trailing = { Text("$globalUsedMin / $globalLimitMin Min.", color = AppLimitColors.SecondaryLabel) },
             )
             Divider()
             IosRow(
@@ -105,24 +117,23 @@ fun HomeScreen(
                     )
                 },
             )
-            Divider()
-            IosRow(
-                title = "Schutz",
-                trailing = {
-                    Text(
-                        if (settings.protectionEnabled) "aktiv" else "inaktiv",
-                        color = if (settings.protectionEnabled) AppLimitColors.Success else AppLimitColors.SecondaryLabel,
-                    )
-                },
-            )
         }
 
         if (limited.isNotEmpty()) {
-            IosSectionHeader("Apps mit Limit")
-            IosCard { limited.forEachIndexed { i, a -> AppLine(a.appName, i > 0) } }
+            IosSectionHeader("Apps mit eigenem Limit")
+            IosCard {
+                limited.forEachIndexed { i, a ->
+                    if (i > 0) Divider()
+                    IosRow(title = a.appName, subtitle = "max. ${a.individualLimitMinutes} Min./Tag")
+                }
+            }
+        }
+        if (standard.isNotEmpty()) {
+            IosSectionHeader("Standard-Apps")
+            IosCard { standard.forEachIndexed { i, a -> AppLine(a.appName, i > 0) } }
         }
         if (plus.isNotEmpty()) {
-            IosSectionHeader("Freigegebene Plus-Apps")
+            IosSectionHeader("Zugelassen Plus")
             IosCard { plus.forEachIndexed { i, a -> AppLine(a.appName, i > 0) } }
         }
         if (blocked.isNotEmpty()) {

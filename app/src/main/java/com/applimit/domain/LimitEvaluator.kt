@@ -4,65 +4,54 @@ import com.applimit.data.db.AppCategory
 import com.applimit.data.db.ManagedApp
 import com.applimit.data.prefs.AppSettings
 
-/** What the enforcement service should do right now. */
-enum class EnforcementAction {
-    ALLOW,          // nothing to do
-    BLOCK_APP,      // show blocking overlay over the current app
-    LOCK_DEVICE,    // show the full-device lock screen
-}
+enum class EnforcementAction { ALLOW, BLOCK_APP, LOCK_DEVICE }
 
+/**
+ * Result of one evaluation. All usage/limit values are in SECONDS so the
+ * enforcement is second-accurate and the parent overview can show exact figures.
+ */
 data class LimitDecision(
     val action: EnforcementAction,
     val reason: String,
-    val limitedUsedMinutes: Int,
-    val dailyLimitMinutes: Int,
-    val totalUsedMinutes: Int,
-    val fullLockMinutes: Int,
-    /**
-     * Only meaningful for LOCK_DEVICE. true → the lock is a hard daily cap and
-     * should be persisted (survives restarts until midnight reset). false → a
-     * transient lock (Ruhezeit) that clears itself once the window reopens.
-     */
-    val persistentLock: Boolean = false,
+    val generalUsedSec: Long,
+    val generalLimitSec: Long,
+    val globalUsedSec: Long,
+    val globalLimitSec: Long,
+    /** Only meaningful when the foreground app is a LIMIT app. */
+    val individualUsedSec: Long = 0,
+    val individualLimitSec: Long = 0,
 )
 
 /**
- * Pure, Android-free decision logic (unit-testable).
+ * Pure, Android-free decision logic for the two-tier limit system.
  *
- * Rule order (first match wins):
- *  0. Protection master switch OFF        → ALLOW everything (setup mode).
- *  1. Phone/emergency dialer              → ALLOW always (even while locked).
- *  2. Hard daily budget reached / persisted→ LOCK_DEVICE (persistent).
- *  3. Outside the usage window (Ruhezeit) → LOCK_DEVICE (transient).
- *  4. Android Settings app                → BLOCK_APP (anti-tamper).
- *  5. BLOCKED category app                → BLOCK_APP.
- *  6. LIMITED app past the daily limit    → BLOCK_APP.
- *  7. Otherwise                           → ALLOW.
+ * Two pools (see [AppSettings]):
+ *   - GENERAL: LIMIT + STANDARD apps.
+ *   - GLOBAL:  LIMIT + STANDARD + PLUS apps whose plusCountsToGlobal is set.
  *
- * The caller (Enforcer) additionally always allows this app's own package, so
- * the youth portal stays reachable.
+ * Overlay rules (first match wins), per foreground category:
+ *   BLOCKED  → always blocked.
+ *   PLUS     → never blocked (even if the global pool is exhausted).
+ *   LIMIT    → blocked when individual OR general OR global limit reached.
+ *   STANDARD → blocked when general OR global limit reached.
+ *
+ * Ordering also covers: protection off, phone/emergency, Ruhezeit, Settings app.
  */
 object LimitEvaluator {
 
-    /** Substrings identifying the phone/dialer so emergency calls always work. */
     private val PHONE_HINTS = listOf(".dialer", ".phone", ".incallui", "com.android.server.telecom")
 
-    /**
-     * Settings / permission-manager packages we block once protection is on, so
-     * the child can't disable our overlay or accessibility service. Covers stock
-     * Android plus the common OEM security/permission apps.
-     */
     private val SETTINGS_PACKAGES = setOf(
         "com.android.settings",
         "com.android.settings.intelligence",
         "com.android.permissioncontroller",
         "com.google.android.permissioncontroller",
-        "com.miui.securitycenter",            // Xiaomi
-        "com.coloros.safecenter",             // Oppo/Realme (older)
-        "com.oplus.safecenter",               // Oppo/Realme (newer)
+        "com.miui.securitycenter",
+        "com.coloros.safecenter",
+        "com.oplus.safecenter",
         "com.oppo.safe",
-        "com.samsung.android.settings",       // Samsung
-        "com.samsung.android.sm",             // Samsung device care
+        "com.samsung.android.settings",
+        "com.samsung.android.sm",
     )
 
     fun evaluate(
@@ -72,84 +61,75 @@ object LimitEvaluator {
         settings: AppSettings,
         nowMinuteOfDay: Int,
     ): LimitDecision {
-        val categoryByPackage = managedApps.associate { it.packageName to it.category }
+        val appByPackage = managedApps.associateBy { it.packageName }
 
-        var limitedMs = 0L
-        var totalMs = 0L
+        var generalMs = 0L
+        var globalMs = 0L
         for ((pkg, ms) in usageMillisByPackage) {
-            totalMs += ms
-            if (categoryByPackage[pkg] == AppCategory.LIMITED) limitedMs += ms
-        }
-        val limitedMin = (limitedMs / 60_000L).toInt()
-        val totalMin = (totalMs / 60_000L).toInt()
-        val budgetMin = if (settings.fullLockCountsAllApps) totalMin else limitedMin
-
-        // 0) Setup mode / protection off → never block anything.
-        if (!settings.protectionEnabled) {
-            return decision(EnforcementAction.ALLOW, "Schutz inaktiv", limitedMin, totalMin, settings)
+            val app = appByPackage[pkg] ?: continue
+            when (app.category) {
+                AppCategory.LIMIT, AppCategory.STANDARD -> { generalMs += ms; globalMs += ms }
+                AppCategory.PLUS -> if (app.plusCountsToGlobal) globalMs += ms
+                AppCategory.BLOCKED -> { /* counts to nothing */ }
+            }
         }
 
-        // 1) Phone/emergency is always allowed, even during a full lock.
-        if (isPhone(foregroundPackage)) {
-            return decision(EnforcementAction.ALLOW, "Telefon erlaubt", limitedMin, totalMin, settings)
-        }
+        val generalLimitMs = settings.generalLimitMinutes * 60_000L
+        val globalLimitMs = settings.globalLimitMinutes * 60_000L
 
-        // 2) Hard daily budget reached (or already tripped today).
-        if (settings.deviceLockedToday || budgetMin >= settings.fullLockMinutes) {
-            return decision(
-                EnforcementAction.LOCK_DEVICE, "Gesamt-Nutzungsgrenze erreicht",
-                limitedMin, totalMin, settings, persistentLock = true,
-            )
-        }
+        val fgApp = foregroundPackage?.let { appByPackage[it] }
+        val fgUsedMs = foregroundPackage?.let { usageMillisByPackage[it] } ?: 0L
+        val indivLimitMs =
+            if (fgApp?.category == AppCategory.LIMIT) fgApp.individualLimitMinutes * 60_000L else 0L
 
-        // 3) Ruhezeit: outside the allowed usage window → lock (transient).
+        fun build(action: EnforcementAction, reason: String) = LimitDecision(
+            action = action,
+            reason = reason,
+            generalUsedSec = generalMs / 1000,
+            generalLimitSec = generalLimitMs / 1000,
+            globalUsedSec = globalMs / 1000,
+            globalLimitSec = globalLimitMs / 1000,
+            individualUsedSec = if (indivLimitMs > 0) fgUsedMs / 1000 else 0,
+            individualLimitSec = indivLimitMs / 1000,
+        )
+
+        // 0) Setup mode.
+        if (!settings.protectionEnabled) return build(EnforcementAction.ALLOW, "Schutz inaktiv")
+
+        // 1) Phone/emergency always allowed.
+        if (isPhone(foregroundPackage)) return build(EnforcementAction.ALLOW, "Telefon erlaubt")
+
+        // 2) Ruhezeit (outside the usage window) → device lock.
         if (settings.quietTimeEnabled && !settings.isInsideUsageWindow(nowMinuteOfDay)) {
-            return decision(
-                EnforcementAction.LOCK_DEVICE, "Ruhezeit",
-                limitedMin, totalMin, settings, persistentLock = false,
-            )
+            return build(EnforcementAction.LOCK_DEVICE, "Ruhezeit")
         }
 
-        val category = foregroundPackage?.let { categoryByPackage[it] }
-
-        // 4) Block the Android settings app so the child can't disable us.
+        // 3) Block the Settings/permission apps so the child can't disable us.
         if (foregroundPackage in SETTINGS_PACKAGES) {
-            return decision(EnforcementAction.BLOCK_APP, "Einstellungen gesperrt", limitedMin, totalMin, settings)
+            return build(EnforcementAction.BLOCK_APP, "Einstellungen gesperrt")
         }
 
-        // 5) Explicitly blocked app.
-        if (category == AppCategory.BLOCKED) {
-            return decision(EnforcementAction.BLOCK_APP, "App ist gesperrt", limitedMin, totalMin, settings)
+        // 4) Category-specific rules.
+        return when (fgApp?.category) {
+            null -> build(EnforcementAction.ALLOW, "Nicht verwaltet")           // unmanaged
+            AppCategory.PLUS -> build(EnforcementAction.ALLOW, "Zugelassen Plus")
+            AppCategory.BLOCKED -> build(EnforcementAction.BLOCK_APP, "App ist gesperrt")
+            AppCategory.LIMIT -> when {
+                fgUsedMs >= indivLimitMs -> build(EnforcementAction.BLOCK_APP, "Individuelles App-Limit erreicht")
+                generalMs >= generalLimitMs -> build(EnforcementAction.BLOCK_APP, "Allgemeines Limit erreicht")
+                globalMs >= globalLimitMs -> build(EnforcementAction.BLOCK_APP, "Globales Limit erreicht")
+                else -> build(EnforcementAction.ALLOW, "OK")
+            }
+            AppCategory.STANDARD -> when {
+                generalMs >= generalLimitMs -> build(EnforcementAction.BLOCK_APP, "Allgemeines Limit erreicht")
+                globalMs >= globalLimitMs -> build(EnforcementAction.BLOCK_APP, "Globales Limit erreicht")
+                else -> build(EnforcementAction.ALLOW, "OK")
+            }
         }
-
-        // 6) Limited app that has hit the shared daily limit.
-        if (category == AppCategory.LIMITED && limitedMin >= settings.dailyLimitMinutes) {
-            return decision(EnforcementAction.BLOCK_APP, "Tageslimit erreicht", limitedMin, totalMin, settings)
-        }
-
-        // 7) Everything else is allowed.
-        return decision(EnforcementAction.ALLOW, "OK", limitedMin, totalMin, settings)
     }
 
     private fun isPhone(pkg: String?): Boolean {
         if (pkg == null) return false
         return PHONE_HINTS.any { pkg.contains(it, ignoreCase = true) }
     }
-
-    private fun decision(
-        action: EnforcementAction,
-        reason: String,
-        limitedMin: Int,
-        totalMin: Int,
-        settings: AppSettings,
-        persistentLock: Boolean = false,
-    ) = LimitDecision(
-        action = action,
-        reason = reason,
-        limitedUsedMinutes = limitedMin,
-        dailyLimitMinutes = settings.dailyLimitMinutes,
-        totalUsedMinutes = totalMin,
-        fullLockMinutes = settings.fullLockMinutes,
-        persistentLock = persistentLock,
-    )
 }

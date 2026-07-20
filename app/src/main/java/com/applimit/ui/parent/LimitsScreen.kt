@@ -37,9 +37,8 @@ import com.applimit.ui.theme.AppLimitColors
 @Composable
 fun LimitsScreen(
     settings: AppSettings,
-    onDailyLimit: (Int) -> Unit,
-    onFullLockMinutes: (Int) -> Unit,
-    onCountAll: (Boolean) -> Unit,
+    onGeneralLimit: (Int) -> Unit,
+    onGlobalLimit: (Int) -> Unit,
     onQuietTimeEnabled: (Boolean) -> Unit,
     onUsageWindow: (Int, Int) -> Unit,
     onWeeklyLockEnabled: (Boolean) -> Unit,
@@ -57,38 +56,31 @@ fun LimitsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
-            IosSectionHeader("Tageslimit (Apps mit Limit)")
+            IosSectionHeader("Allgemeines Limit (Limit + Standard)")
             IosCard {
                 Stepper(
-                    label = "Limit",
-                    valueLabel = "${settings.dailyLimitMinutes} Min.",
-                    onMinus = { onDailyLimit(settings.dailyLimitMinutes - 5) },
-                    onPlus = { onDailyLimit(settings.dailyLimitMinutes + 5) },
-                    minusEnabled = settings.dailyLimitMinutes > AppSettings.MIN_DAILY_LIMIT_MIN,
-                    plusEnabled = settings.dailyLimitMinutes < AppSettings.MAX_DAILY_LIMIT_MIN,
+                    label = "Allgemeines Limit",
+                    valueLabel = "${settings.generalLimitMinutes} Min.",
+                    onMinus = { onGeneralLimit(settings.generalLimitMinutes - 5) },
+                    onPlus = { onGeneralLimit(settings.generalLimitMinutes + 5) },
+                    minusEnabled = settings.generalLimitMinutes > AppSettings.MIN_LIMIT_MIN,
+                    plusEnabled = settings.generalLimitMinutes < AppSettings.MAX_LIMIT_MIN,
                 )
             }
-            Hint("Standard 1 Std., harte Obergrenze 2 Std. (im Code erzwungen).")
+            Hint("Zeit-Pool für normale Nutzung. Zählt: Kategorien „Limit“ und „Standard“.")
 
-            IosSectionHeader("Geräte-Vollsperre")
+            IosSectionHeader("Globales Limit (gesamte Bildschirmzeit)")
             IosCard {
                 Stepper(
-                    label = "Gesamtzeit bis Sperre",
-                    valueLabel = "${settings.fullLockMinutes} Min.",
-                    onMinus = { onFullLockMinutes(settings.fullLockMinutes - 5) },
-                    onPlus = { onFullLockMinutes(settings.fullLockMinutes + 5) },
-                    minusEnabled = settings.fullLockMinutes > 30,
-                    plusEnabled = settings.fullLockMinutes < AppSettings.MAX_FULL_LOCK_MIN,
-                )
-                Sep()
-                IosRow(
-                    title = "Alle Apps zählen mit",
-                    subtitle = if (settings.fullLockCountsAllApps)
-                        "Auch Plus-Apps zählen in die Gesamtzeit"
-                    else "Nur limitierte Apps zählen in die Gesamtzeit",
-                    trailing = { IosSwitch(settings.fullLockCountsAllApps) { onCountAll(it) } },
+                    label = "Globales Limit",
+                    valueLabel = "${settings.globalLimitMinutes} Min.",
+                    onMinus = { onGlobalLimit(settings.globalLimitMinutes - 5) },
+                    onPlus = { onGlobalLimit(settings.globalLimitMinutes + 5) },
+                    minusEnabled = settings.globalLimitMinutes > AppSettings.MIN_LIMIT_MIN,
+                    plusEnabled = settings.globalLimitMinutes < AppSettings.MAX_LIMIT_MIN,
                 )
             }
+            Hint("Absolute Gesamtzeit. Zählt: „Limit“ + „Standard“ + „Plus“-Apps mit aktiviertem Schalter.")
 
             IosSectionHeader("Ruhezeit (Nutzungsfenster)")
             IosCard {
