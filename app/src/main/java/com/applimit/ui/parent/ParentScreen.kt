@@ -66,7 +66,8 @@ fun ParentScreen(
         ParentTab.CATEGORIES -> CategoriesScreen(
             installed = state.installedApps,
             managed = state.managedApps,
-            onSet = { app, cat, limit, plusGlobal -> vm.setCategory(app, cat, limit, plusGlobal) },
+            protectionEnabled = state.settings.protectionEnabled,
+            onSave = { selections -> vm.saveCategories(selections) },
             onBack = { tab = ParentTab.DASHBOARD },
         )
         ParentTab.LIMITS -> LimitsScreen(

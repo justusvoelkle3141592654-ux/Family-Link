@@ -19,6 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,10 +34,11 @@ import androidx.compose.ui.unit.dp
 import com.applimit.data.db.AppCategory
 import com.applimit.data.db.ManagedApp
 import com.applimit.data.repository.InstalledApp
+import com.applimit.ui.CategorySelection
+import com.applimit.ui.components.IosPrimaryButton
 import com.applimit.ui.components.IosSwitch
 import com.applimit.ui.theme.AppLimitColors
 
-/** Colour + short label for each category badge. */
 private fun catColor(c: AppCategory) = when (c) {
     AppCategory.PLUS -> AppLimitColors.Success
     AppCategory.STANDARD -> AppLimitColors.Accent
@@ -46,38 +53,118 @@ private fun catLabel(c: AppCategory) = when (c) {
     AppCategory.BLOCKED -> "Blockiert"
 }
 
+/** Local editable state per app (defaults to STANDARD). */
+private data class Sel(
+    val category: AppCategory = AppCategory.STANDARD,
+    val individualLimitMinutes: Int = 30,
+    val plusCountsToGlobal: Boolean = false,
+)
+
 /**
- * Assign each installed app to one of the 4 categories, with the extra controls
- * each category needs (individual limit for LIMIT, global-count toggle for PLUS)
- * and a coloured badge showing the current state.
+ * Assign each installed app to one of the 4 categories. Every app starts as
+ * STANDARD. Changes are held locally and only written when the parent taps
+ * "Speichern", which then re-checks enforcement immediately.
  */
 @Composable
 fun CategoriesScreen(
     installed: List<InstalledApp>,
     managed: List<ManagedApp>,
-    onSet: (InstalledApp, AppCategory?, Int, Boolean) -> Unit,
+    protectionEnabled: Boolean,
+    onSave: (List<CategorySelection>) -> Unit,
     onBack: () -> Unit,
 ) {
-    val byPkg = managed.associateBy { it.packageName }
+    val pending = remember { mutableStateMapOf<String, Sel>() }
+    var dirty by remember { mutableStateOf(false) }
+    var justSaved by remember { mutableStateOf(false) }
+
+    // Seed local state: use the saved category if present, otherwise STANDARD.
+    LaunchedEffect(installed, managed) {
+        val byPkg = managed.associateBy { it.packageName }
+        installed.forEach { app ->
+            if (!pending.containsKey(app.packageName)) {
+                val m = byPkg[app.packageName]
+                pending[app.packageName] = if (m != null) {
+                    Sel(m.category, m.individualLimitMinutes, m.plusCountsToGlobal)
+                } else Sel()
+            }
+        }
+    }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .background(AppLimitColors.Background),
+        Modifier.fillMaxSize().background(AppLimitColors.Background),
     ) {
         ParentTopBar(title = "App-Kategorien", onBack = onBack)
+
+        if (!protectionEnabled) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFFFF3CD))
+                    .padding(12.dp),
+            ) {
+                Text(
+                    "⚠️ Der Schutz ist noch AUS. Sperren/Limits wirken erst, wenn du " +
+                        "im Elternbereich den Schutz-Schalter aktivierst.",
+                    color = Color(0xFF7A5B00),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+
         if (installed.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("Apps werden geladen …", color = AppLimitColors.SecondaryLabel)
             }
             return
         }
+
         LazyColumn(
+            modifier = Modifier.weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(installed, key = { it.packageName }) { app ->
-                AppCategoryCard(app = app, current = byPkg[app.packageName], onSet = onSet)
+                val sel = pending[app.packageName] ?: Sel()
+                AppCategoryCard(
+                    app = app,
+                    sel = sel,
+                    onChange = { newSel ->
+                        pending[app.packageName] = newSel
+                        dirty = true
+                        justSaved = false
+                    },
+                )
+            }
+        }
+
+        // Sticky Save bar.
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(AppLimitColors.Card)
+                .padding(16.dp),
+        ) {
+            if (justSaved) {
+                Text(
+                    "✓ Gespeichert",
+                    color = AppLimitColors.Success,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            IosPrimaryButton(
+                text = if (dirty) "Speichern" else "Gespeichert",
+                enabled = dirty,
+            ) {
+                val selections = installed.map { app ->
+                    val s = pending[app.packageName] ?: Sel()
+                    CategorySelection(app, s.category, s.individualLimitMinutes, s.plusCountsToGlobal)
+                }
+                onSave(selections)
+                dirty = false
+                justSaved = true
             }
         }
     }
@@ -86,13 +173,9 @@ fun CategoriesScreen(
 @Composable
 private fun AppCategoryCard(
     app: InstalledApp,
-    current: ManagedApp?,
-    onSet: (InstalledApp, AppCategory?, Int, Boolean) -> Unit,
+    sel: Sel,
+    onChange: (Sel) -> Unit,
 ) {
-    val selected = current?.category
-    val indivLimit = current?.individualLimitMinutes ?: 30
-    val plusGlobal = current?.plusCountsToGlobal ?: false
-
     Column(
         Modifier
             .fillMaxWidth()
@@ -109,39 +192,38 @@ private fun AppCategoryCard(
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
-            if (selected != null) Badge(selected)
+            Badge(sel.category)
         }
 
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Segment("Plus", selected == AppCategory.PLUS, catColor(AppCategory.PLUS)) {
-                onSet(app, AppCategory.PLUS, indivLimit, plusGlobal)
+            Segment("Plus", sel.category == AppCategory.PLUS, catColor(AppCategory.PLUS)) {
+                onChange(sel.copy(category = AppCategory.PLUS))
             }
-            Segment("Standard", selected == AppCategory.STANDARD, catColor(AppCategory.STANDARD)) {
-                onSet(app, AppCategory.STANDARD, indivLimit, plusGlobal)
+            Segment("Standard", sel.category == AppCategory.STANDARD, catColor(AppCategory.STANDARD)) {
+                onChange(sel.copy(category = AppCategory.STANDARD))
             }
-            Segment("Limit", selected == AppCategory.LIMIT, catColor(AppCategory.LIMIT)) {
-                onSet(app, AppCategory.LIMIT, indivLimit, plusGlobal)
+            Segment("Limit", sel.category == AppCategory.LIMIT, catColor(AppCategory.LIMIT)) {
+                onChange(sel.copy(category = AppCategory.LIMIT))
             }
-            Segment("Sperren", selected == AppCategory.BLOCKED, catColor(AppCategory.BLOCKED)) {
-                onSet(app, AppCategory.BLOCKED, indivLimit, plusGlobal)
+            Segment("Sperren", sel.category == AppCategory.BLOCKED, catColor(AppCategory.BLOCKED)) {
+                onChange(sel.copy(category = AppCategory.BLOCKED))
             }
         }
 
-        // Extra controls depending on the chosen category.
-        when (selected) {
+        when (sel.category) {
             AppCategory.LIMIT -> {
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Eigenes Limit", color = AppLimitColors.Label, modifier = Modifier.weight(1f))
                     Text(
-                        "$indivLimit Min.",
+                        "${sel.individualLimitMinutes} Min.",
                         color = AppLimitColors.SecondaryLabel,
                         modifier = Modifier.padding(end = 12.dp),
                     )
-                    RoundBtn("–") { onSet(app, AppCategory.LIMIT, (indivLimit - 5).coerceAtLeast(5), plusGlobal) }
+                    RoundBtn("–") { onChange(sel.copy(individualLimitMinutes = (sel.individualLimitMinutes - 5).coerceAtLeast(5))) }
                     Spacer(Modifier.size(10.dp))
-                    RoundBtn("+") { onSet(app, AppCategory.LIMIT, (indivLimit + 5).coerceAtMost(600), plusGlobal) }
+                    RoundBtn("+") { onChange(sel.copy(individualLimitMinutes = (sel.individualLimitMinutes + 5).coerceAtMost(600))) }
                 }
             }
             AppCategory.PLUS -> {
@@ -150,26 +232,16 @@ private fun AppCategoryCard(
                     Column(Modifier.weight(1f)) {
                         Text("Zählt zum globalen Limit", color = AppLimitColors.Label)
                         Text(
-                            if (plusGlobal) "Nutzung verbraucht globale Zeit"
+                            if (sel.plusCountsToGlobal) "Nutzung verbraucht globale Zeit"
                             else "Nutzung ist komplett frei",
                             color = AppLimitColors.SecondaryLabel,
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
-                    IosSwitch(plusGlobal) { onSet(app, AppCategory.PLUS, indivLimit, it) }
+                    IosSwitch(sel.plusCountsToGlobal) { onChange(sel.copy(plusCountsToGlobal = it)) }
                 }
             }
             else -> {}
-        }
-
-        if (selected != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Entfernen",
-                color = AppLimitColors.Accent,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.clickable { onSet(app, null, indivLimit, plusGlobal) },
-            )
         }
     }
 }

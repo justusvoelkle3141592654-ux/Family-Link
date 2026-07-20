@@ -15,6 +15,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+/** One pending category choice from the Categories screen's Save button. */
+data class CategorySelection(
+    val app: InstalledApp,
+    val category: AppCategory,
+    val individualLimitMinutes: Int,
+    val plusCountsToGlobal: Boolean,
+)
+
 /** Who is currently allowed in. */
 enum class AuthLevel { NONE, CHILD, PARENT }
 
@@ -172,6 +180,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             else repo.setCategory(
                 app.packageName, app.appName, category, individualLimitMinutes, plusCountsToGlobal,
             )
+        }
+    }
+
+    /**
+     * Persist all category selections at once (the Save button). Every listed
+     * app is written, so uncategorised apps become STANDARD by default. Then we
+     * re-evaluate immediately so a fresh "Blockiert" takes effect at once.
+     */
+    fun saveCategories(selections: List<CategorySelection>) {
+        viewModelScope.launch {
+            selections.forEach {
+                repo.setCategory(
+                    it.app.packageName, it.app.appName, it.category,
+                    it.individualLimitMinutes, it.plusCountsToGlobal,
+                )
+            }
+            com.applimit.service.Enforcer.recheck(getApplication())
+            loadOverview()
         }
     }
 
