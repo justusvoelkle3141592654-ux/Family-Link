@@ -54,14 +54,19 @@ object Enforcer {
     private suspend fun evaluate(context: Context, pkg: String?): Unit = mutex.withLock {
         val repository = repo ?: return@withLock
 
+        // Prefer the accessibility-reported package; fall back to usage stats so
+        // enforcement still works if accessibility events are quiet.
+        val effective = pkg ?: repository.currentForegroundPackage()
+        if (effective != null) currentPackage = effective
+
         // Never block our own youth/parent portal.
-        if (pkg == context.packageName) {
+        if (effective == context.packageName) {
             withContext(Dispatchers.Main) { safeHide() }
             return@withLock
         }
 
-        val decision = repository.evaluate(pkg)
-        Log.d(TAG, "pkg=$pkg action=${decision.action} reason=${decision.reason}")
+        val decision = repository.evaluate(effective)
+        Log.d(TAG, "pkg=$effective action=${decision.action} reason=${decision.reason}")
 
         withContext(Dispatchers.Main) {
             when (decision.action) {

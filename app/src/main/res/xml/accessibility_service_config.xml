@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    No android:packageNames attribute → the service receives window-state-change
+    events from ALL apps. That is required to detect the foreground app so we can
+    block individual apps and trigger the device lock. An empty packageNames=""
+    would silently filter out every app.
+-->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
-    android:notificationTimeout="100"
-    android:packageNames="" />
+    android:notificationTimeout="100" />

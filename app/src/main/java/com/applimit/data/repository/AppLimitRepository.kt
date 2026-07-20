@@ -91,6 +91,10 @@ class AppLimitRepository private constructor(
     private fun limitsPaused(settings: AppSettings): Boolean =
         settings.limitsPausedUntilMillis > System.currentTimeMillis()
 
+    /** Fallback foreground-package detection via usage stats (IO). */
+    suspend fun currentForegroundPackage(): String? =
+        withContext(Dispatchers.IO) { usageReader.currentForegroundPackage() }
+
     /** Evaluates the current enforcement decision for [foregroundPackage]. */
     suspend fun evaluate(foregroundPackage: String?): LimitDecision =
         withContext(Dispatchers.IO) {

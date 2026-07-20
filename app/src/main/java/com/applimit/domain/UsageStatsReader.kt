@@ -91,6 +91,32 @@ class UsageStatsReader(private val context: Context) {
         return result
     }
 
+    /**
+     * Best-effort current foreground package from the last resume event in the
+     * recent past. Used as a fallback when the AccessibilityService is quiet, so
+     * limit locks and blocking still trigger on the periodic re-check.
+     */
+    fun currentForegroundPackage(): String? {
+        if (!hasUsageAccess()) return null
+        val now = System.currentTimeMillis()
+        return try {
+            val events = usageStatsManager.queryEvents(now - 60_000, now)
+            val e = UsageEvents.Event()
+            var last: String? = null
+            while (events.hasNextEvent()) {
+                events.getNextEvent(e)
+                if (e.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                    e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
+                ) {
+                    last = e.packageName
+                }
+            }
+            last
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun add(map: HashMap<String, Long>, pkg: String, delta: Long) {
         if (delta <= 0 || delta > MAX_SINGLE_SEGMENT_MS) return // ignore bogus spans
         map[pkg] = (map[pkg] ?: 0L) + delta
