@@ -45,7 +45,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-debug-latest
-          name: App-Limit – Debug-APK (neuester Build)
+          name: App-Limit – Finale Version (neuester Build)
           body: |
             Automatisch gebaute, installierbare Debug-APK vom jeweils letzten Commit.
 

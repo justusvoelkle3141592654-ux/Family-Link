@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -36,6 +37,12 @@ data class AppSettings(
     val weeklyOpenStartHour: Int = 18,
     val weeklyOpenEndHour: Int = 20,
     val lastOpenIsoWeek: Int = 0,
+
+    /**
+     * "Aus-Button": epoch millis until which all time limits + Ruhezeit are
+     * paused (default until 23:00 today). 0 = not paused. Automatically expires.
+     */
+    val limitsPausedUntilMillis: Long = 0,
 ) {
     fun isInsideUsageWindow(minuteOfDay: Int): Boolean {
         val start = usageWindowStartHour * 60
@@ -69,6 +76,7 @@ class SettingsStore(private val context: Context) {
             weeklyOpenStartHour = p[OPEN_START] ?: 18,
             weeklyOpenEndHour = p[OPEN_END] ?: 20,
             lastOpenIsoWeek = p[LAST_OPEN_WEEK] ?: 0,
+            limitsPausedUntilMillis = p[PAUSED_UNTIL] ?: 0L,
         )
     }
 
@@ -110,6 +118,10 @@ class SettingsStore(private val context: Context) {
         it[LAST_OPEN_WEEK] = week
     }
 
+    suspend fun setLimitsPausedUntil(epochMillis: Long) = context.settingsDataStore.edit {
+        it[PAUSED_UNTIL] = epochMillis
+    }
+
     companion object {
         private val PROTECTION_ON = booleanPreferencesKey("protection_enabled")
         private val GENERAL_LIMIT = intPreferencesKey("general_limit_min")
@@ -122,5 +134,6 @@ class SettingsStore(private val context: Context) {
         private val OPEN_START = intPreferencesKey("open_start_hour")
         private val OPEN_END = intPreferencesKey("open_end_hour")
         private val LAST_OPEN_WEEK = intPreferencesKey("last_open_iso_week")
+        private val PAUSED_UNTIL = longPreferencesKey("limits_paused_until")
     }
 }

@@ -97,4 +97,27 @@ class LimitEvaluatorTest {
         val d = eval("com.random.unmanaged", emptyMap())
         assertEquals(EnforcementAction.ALLOW, d.action)
     }
+
+    @Test fun `uncategorised app counts as standard via default set`() {
+        // "com.new" is not managed but is a real user app → STANDARD by default.
+        val d = LimitEvaluator.evaluate(
+            "com.new", mapOf("com.new" to min(70)), apps, base(), noon,
+            defaultStandardPackages = setOf("com.new"),
+        )
+        // 70 >= general 60 → device lock
+        assertEquals(EnforcementAction.LOCK_DEVICE, d.action)
+    }
+
+    @Test fun `pause disables limits and ruhezeit but not blocked apps`() {
+        val overGeneral = mapOf(game.packageName to min(90))
+        // Paused → standard app allowed despite being over the limit.
+        val d1 = LimitEvaluator.evaluate(game.packageName, overGeneral, apps, base(), noon, limitsPaused = true)
+        assertEquals(EnforcementAction.ALLOW, d1.action)
+        // Paused during Ruhezeit → still allowed.
+        val d2 = LimitEvaluator.evaluate(game.packageName, emptyMap(), apps, base(), 23 * 60, limitsPaused = true)
+        assertEquals(EnforcementAction.ALLOW, d2.action)
+        // But a blocked app stays blocked even when paused.
+        val d3 = LimitEvaluator.evaluate(bad.packageName, emptyMap(), apps, base(), noon, limitsPaused = true)
+        assertEquals(EnforcementAction.BLOCK_APP, d3.action)
+    }
 }

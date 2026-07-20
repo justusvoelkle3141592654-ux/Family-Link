@@ -243,4 +243,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             com.applimit.service.Enforcer.clearOverlay()
         }
     }
+
+    /** "Aus-Button": pause all limits + Ruhezeit until 23:00 today. */
+    fun pauseLimitsUntil23() {
+        viewModelScope.launch {
+            val c = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 23)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            // If it's already past 23:00, the pause is effectively immediate-off.
+            repo.settingsStore.setLimitsPausedUntil(c.timeInMillis)
+            com.applimit.service.Enforcer.clearOverlay()
+        }
+    }
+
+    fun resumeLimits() {
+        viewModelScope.launch { repo.settingsStore.setLimitsPausedUntil(0) }
+    }
 }

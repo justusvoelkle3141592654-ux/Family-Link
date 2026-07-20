@@ -90,13 +90,9 @@ object Enforcer {
                 }
 
                 EnforcementAction.LOCK_DEVICE -> {
-                    // Reached by Ruhezeit and by the general/global limit → lock
-                    // the whole device (lockNow where admin is granted) and show
-                    // the full-screen lock. Phone + App-Limit stay reachable.
-                    val level = runCatching { lock?.enforceFullLock() }.getOrNull()
-                    val suffix = if (level == DeviceLockController.LockLevel.OVERLAY_ONLY) {
-                        "\n(Tipp: Geräteadministrator aktivieren für eine echte Sperre.)"
-                    } else ""
+                    // The full-screen overlay IS the lock screen. We deliberately do
+                    // NOT call lockNow() repeatedly (that hammered the system lock).
+                    // Enabling the device admin therefore never locks by itself.
                     val (title, body) = when {
                         decision.reason.contains("Ruhezeit") ->
                             "Ruhezeit" to "Jetzt ist Ruhezeit. Die Apps sind bis zum nächsten Zeitfenster gesperrt."
@@ -107,7 +103,7 @@ object Enforcer {
                             "Zeit ist um" to "Dein Zeitlimit ist aufgebraucht " +
                                 "(${decision.generalUsedSec / 60}/${decision.generalLimitSec / 60} Min.)."
                     }
-                    runCatching { overlay?.showFullLock(title, body + suffix) }
+                    runCatching { overlay?.showFullLock(title, body) }
                 }
             }
         }

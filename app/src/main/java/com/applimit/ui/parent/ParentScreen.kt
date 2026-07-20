@@ -56,6 +56,8 @@ fun ParentScreen(
         ParentTab.DASHBOARD -> Dashboard(
             state = state,
             onToggleProtection = { vm.setProtectionEnabled(it) },
+            onPauseLimits = { vm.pauseLimitsUntil23() },
+            onResumeLimits = { vm.resumeLimits() },
             onCategories = { vm.loadInstalledApps(); tab = ParentTab.CATEGORIES },
             onLimits = { tab = ParentTab.LIMITS },
             onPassword = { tab = ParentTab.PASSWORD },
@@ -91,6 +93,8 @@ fun ParentScreen(
 private fun Dashboard(
     state: com.applimit.ui.MainUiState,
     onToggleProtection: (Boolean) -> Unit,
+    onPauseLimits: () -> Unit,
+    onResumeLimits: () -> Unit,
     onCategories: () -> Unit,
     onLimits: () -> Unit,
     onPassword: () -> Unit,
@@ -129,6 +133,26 @@ private fun Dashboard(
                 else
                     "Nichts wird gesperrt. Zum Aktivieren einschalten, wenn alles eingerichtet ist.",
                 trailing = { IosSwitch(state.settings.protectionEnabled) { onToggleProtection(it) } },
+            )
+        }
+
+        val paused = state.settings.limitsPausedUntilMillis > System.currentTimeMillis()
+        IosSectionHeader("Limits vorübergehend aus")
+        IosCard {
+            IosRow(
+                title = if (paused) "Limits pausiert – bis 23:00 Uhr" else "Limits aktiv",
+                subtitle = if (paused)
+                    "Sperren & Ruhezeit sind heute bis 23:00 Uhr aus."
+                else
+                    "Für heute bis 23:00 Uhr alle Limits & Ruhezeit ausschalten.",
+                onClick = { if (paused) onResumeLimits() else onPauseLimits() },
+                trailing = {
+                    Text(
+                        if (paused) "Wieder an" else "Aus bis 23:00",
+                        color = if (paused) AppLimitColors.Success else AppLimitColors.Accent,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
             )
         }
 

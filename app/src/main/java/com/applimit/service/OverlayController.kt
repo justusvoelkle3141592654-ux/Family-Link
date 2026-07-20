@@ -7,6 +7,8 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
@@ -36,6 +38,24 @@ class OverlayController(private val context: Context) {
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
     private var overlayView: View? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val clockTick = object : Runnable {
+        override fun run() {
+            updateClock()
+            handler.postDelayed(this, 1000)
+        }
+    }
+
+    private fun updateClock() {
+        val v = overlayView?.findViewWithTag<TextView>(TAG_CLOCK) ?: return
+        val now = java.util.Calendar.getInstance()
+        v.text = String.format(
+            "%02d:%02d",
+            now.get(java.util.Calendar.HOUR_OF_DAY),
+            now.get(java.util.Calendar.MINUTE),
+        )
+    }
 
     fun canDrawOverlays(): Boolean = Settings.canDrawOverlays(context)
 
@@ -74,12 +94,18 @@ class OverlayController(private val context: Context) {
         try {
             windowManager.addView(view, params)
             overlayView = view
+            if (fullLock) {
+                updateClock()
+                handler.removeCallbacks(clockTick)
+                handler.postDelayed(clockTick, 1000)
+            }
         } catch (_: Exception) {
             overlayView = null
         }
     }
 
     fun hide() {
+        handler.removeCallbacks(clockTick)
         overlayView?.let {
             try {
                 windowManager.removeView(it)
@@ -116,6 +142,16 @@ class OverlayController(private val context: Context) {
             )
         }
 
+        // Large live clock at the top (spec: lock screen must show the time).
+        val clock = TextView(context).apply {
+            tag = TAG_CLOCK
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 56f)
+            gravity = Gravity.CENTER
+            typeface = android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
+            setPadding(0, 0, 0, dp(24))
+        }
+
         val iconCircle = TextView(context).apply {
             text = "🔒"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 46f)
@@ -146,6 +182,7 @@ class OverlayController(private val context: Context) {
             setPadding(dp(8), dp(12), dp(8), dp(28))
         }
 
+        root.addView(clock)
         root.addView(iconCircle)
         root.addView(titleView)
         root.addView(messageView)
@@ -241,6 +278,7 @@ class OverlayController(private val context: Context) {
     companion object {
         private const val TAG_TITLE = "overlay_title"
         private const val TAG_MESSAGE = "overlay_message"
+        private const val TAG_CLOCK = "overlay_clock"
 
         @Suppress("unused")
         private fun overlayUri(context: Context): Uri = Uri.parse("package:${context.packageName}")

@@ -60,27 +60,37 @@ object LimitEvaluator {
         managedApps: List<ManagedApp>,
         settings: AppSettings,
         nowMinuteOfDay: Int,
+        /** Real user apps that count as STANDARD by default when not categorised. */
+        defaultStandardPackages: Set<String> = emptySet(),
+        /** True while the parent's "Aus-Button" pause is active. */
+        limitsPaused: Boolean = false,
     ): LimitDecision {
         val appByPackage = managedApps.associateBy { it.packageName }
+
+        // Effective category: explicit assignment, else STANDARD for real user
+        // apps (so uncategorised apps still count towards the limits), else null.
+        fun categoryOf(pkg: String): AppCategory? =
+            appByPackage[pkg]?.category
+                ?: if (pkg in defaultStandardPackages) AppCategory.STANDARD else null
 
         var generalMs = 0L
         var globalMs = 0L
         for ((pkg, ms) in usageMillisByPackage) {
-            val app = appByPackage[pkg] ?: continue
-            when (app.category) {
+            when (categoryOf(pkg)) {
                 AppCategory.LIMIT, AppCategory.STANDARD -> { generalMs += ms; globalMs += ms }
-                AppCategory.PLUS -> if (app.plusCountsToGlobal) globalMs += ms
-                AppCategory.BLOCKED -> { /* counts to nothing */ }
+                AppCategory.PLUS -> if (appByPackage[pkg]?.plusCountsToGlobal == true) globalMs += ms
+                AppCategory.BLOCKED, null -> { /* counts to nothing */ }
             }
         }
 
         val generalLimitMs = settings.generalLimitMinutes * 60_000L
         val globalLimitMs = settings.globalLimitMinutes * 60_000L
 
-        val fgApp = foregroundPackage?.let { appByPackage[it] }
+        val fgManaged = foregroundPackage?.let { appByPackage[it] }
+        val fgCat = foregroundPackage?.let { categoryOf(it) }
         val fgUsedMs = foregroundPackage?.let { usageMillisByPackage[it] } ?: 0L
         val indivLimitMs =
-            if (fgApp?.category == AppCategory.LIMIT) fgApp.individualLimitMinutes * 60_000L else 0L
+            if (fgManaged?.category == AppCategory.LIMIT) fgManaged.individualLimitMinutes * 60_000L else 0L
 
         fun build(action: EnforcementAction, reason: String) = LimitDecision(
             action = action,
@@ -99,23 +109,29 @@ object LimitEvaluator {
         // 1) Phone/emergency always allowed.
         if (isPhone(foregroundPackage)) return build(EnforcementAction.ALLOW, "Telefon erlaubt")
 
-        // 2) Ruhezeit (outside the usage window) → device lock.
-        if (settings.quietTimeEnabled && !settings.isInsideUsageWindow(nowMinuteOfDay)) {
-            return build(EnforcementAction.LOCK_DEVICE, "Ruhezeit")
-        }
-
-        // 3) Block the Settings/permission apps so the child can't disable us.
+        // 2) Settings/permission apps are always bounced (anti-tamper).
         if (foregroundPackage in SETTINGS_PACKAGES) {
             return build(EnforcementAction.BLOCK_APP, "Einstellungen gesperrt")
         }
 
-        // 4) Category-specific rules.
-        return when (fgApp?.category) {
-            null -> build(EnforcementAction.ALLOW, "Nicht verwaltet")           // unmanaged
+        // 3) Explicitly blocked apps stay blocked, even when paused.
+        if (fgCat == AppCategory.BLOCKED) {
+            return build(EnforcementAction.BLOCK_APP, "App ist gesperrt")
+        }
+
+        // 4) "Aus-Button": all time limits + Ruhezeit paused.
+        if (limitsPaused) return build(EnforcementAction.ALLOW, "Limits pausiert")
+
+        // 5) Ruhezeit (outside the usage window) → device lock.
+        if (settings.quietTimeEnabled && !settings.isInsideUsageWindow(nowMinuteOfDay)) {
+            return build(EnforcementAction.LOCK_DEVICE, "Ruhezeit")
+        }
+
+        // 6) Category-specific limit rules.
+        return when (fgCat) {
+            null -> build(EnforcementAction.ALLOW, "Nicht verwaltet")
             AppCategory.PLUS -> build(EnforcementAction.ALLOW, "Zugelassen Plus")
             AppCategory.BLOCKED -> build(EnforcementAction.BLOCK_APP, "App ist gesperrt")
-            // Individual app limit only blocks THAT app; hitting the shared
-            // general/global limit locks the whole device (LOCK_DEVICE).
             AppCategory.LIMIT -> when {
                 fgUsedMs >= indivLimitMs -> build(EnforcementAction.BLOCK_APP, "Individuelles App-Limit erreicht")
                 generalMs >= generalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Allgemeines Limit erreicht")
