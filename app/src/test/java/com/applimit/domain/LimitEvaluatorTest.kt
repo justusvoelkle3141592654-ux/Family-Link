@@ -32,10 +32,10 @@ class LimitEvaluatorTest {
         assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
-    @Test fun `standard blocked when general limit reached`() {
+    @Test fun `standard locks device when general limit reached`() {
         val d = eval(game.packageName, mapOf(game.packageName to min(45), youtube.packageName to min(20)))
-        // general = 45 + 20 = 65 >= 60
-        assertEquals(EnforcementAction.BLOCK_APP, d.action)
+        // general = 45 + 20 = 65 >= 60 → device lock
+        assertEquals(EnforcementAction.LOCK_DEVICE, d.action)
         assertEquals("Allgemeines Limit erreicht", d.reason)
     }
 
@@ -56,11 +56,11 @@ class LimitEvaluatorTest {
         assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
-    @Test fun `plus counting to global can block a standard app`() {
+    @Test fun `plus counting to global can lock device for a standard app`() {
         val s = base().copy(generalLimitMinutes = 600, globalLimitMinutes = 120)
         // music (PLUS, counts global) 100 + game (STANDARD) 30 → general 30, global 130
         val d = eval(game.packageName, mapOf(music.packageName to min(100), game.packageName to min(30)), s)
-        assertEquals(EnforcementAction.BLOCK_APP, d.action)
+        assertEquals(EnforcementAction.LOCK_DEVICE, d.action)
         assertEquals("Globales Limit erreicht", d.reason)
     }
 

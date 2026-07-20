@@ -90,18 +90,24 @@ object Enforcer {
                 }
 
                 EnforcementAction.LOCK_DEVICE -> {
-                    // Only Ruhezeit reaches this; it clears itself when the window
-                    // reopens, so nothing is persisted.
+                    // Reached by Ruhezeit and by the general/global limit → lock
+                    // the whole device (lockNow where admin is granted) and show
+                    // the full-screen lock. Phone + App-Limit stay reachable.
                     val level = runCatching { lock?.enforceFullLock() }.getOrNull()
                     val suffix = if (level == DeviceLockController.LockLevel.OVERLAY_ONLY) {
-                        "\n(Overlay-Sperre)"
+                        "\n(Tipp: Geräteadministrator aktivieren für eine echte Sperre.)"
                     } else ""
-                    runCatching {
-                        overlay?.showFullLock(
-                            "Ruhezeit",
-                            "Jetzt ist Ruhezeit. Die Apps sind bis zum nächsten Zeitfenster gesperrt.$suffix",
-                        )
+                    val (title, body) = when {
+                        decision.reason.contains("Ruhezeit") ->
+                            "Ruhezeit" to "Jetzt ist Ruhezeit. Die Apps sind bis zum nächsten Zeitfenster gesperrt."
+                        decision.reason.contains("Globales") ->
+                            "Zeit ist um" to "Deine gesamte Bildschirmzeit ist aufgebraucht " +
+                                "(${decision.globalUsedSec / 60}/${decision.globalLimitSec / 60} Min.)."
+                        else ->
+                            "Zeit ist um" to "Dein Zeitlimit ist aufgebraucht " +
+                                "(${decision.generalUsedSec / 60}/${decision.generalLimitSec / 60} Min.)."
                     }
+                    runCatching { overlay?.showFullLock(title, body + suffix) }
                 }
             }
         }

@@ -114,15 +114,17 @@ object LimitEvaluator {
             null -> build(EnforcementAction.ALLOW, "Nicht verwaltet")           // unmanaged
             AppCategory.PLUS -> build(EnforcementAction.ALLOW, "Zugelassen Plus")
             AppCategory.BLOCKED -> build(EnforcementAction.BLOCK_APP, "App ist gesperrt")
+            // Individual app limit only blocks THAT app; hitting the shared
+            // general/global limit locks the whole device (LOCK_DEVICE).
             AppCategory.LIMIT -> when {
                 fgUsedMs >= indivLimitMs -> build(EnforcementAction.BLOCK_APP, "Individuelles App-Limit erreicht")
-                generalMs >= generalLimitMs -> build(EnforcementAction.BLOCK_APP, "Allgemeines Limit erreicht")
-                globalMs >= globalLimitMs -> build(EnforcementAction.BLOCK_APP, "Globales Limit erreicht")
+                generalMs >= generalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Allgemeines Limit erreicht")
+                globalMs >= globalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Globales Limit erreicht")
                 else -> build(EnforcementAction.ALLOW, "OK")
             }
             AppCategory.STANDARD -> when {
-                generalMs >= generalLimitMs -> build(EnforcementAction.BLOCK_APP, "Allgemeines Limit erreicht")
-                globalMs >= globalLimitMs -> build(EnforcementAction.BLOCK_APP, "Globales Limit erreicht")
+                generalMs >= generalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Allgemeines Limit erreicht")
+                globalMs >= globalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Globales Limit erreicht")
                 else -> build(EnforcementAction.ALLOW, "OK")
             }
         }
