@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Stylised globe / map pin motif -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30m-16,0a16,16 0,1 1,32 0a16,16 0,1 1,-32 0" />
+    <path
+        android:fillColor="#2E7D5B"
+        android:pathData="M54,20L54,40M44,30L64,30" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:pathData="M54,44L54,72" />
+    <path
+        android:fillColor="#F2A413"
+        android:pathData="M54,46L74,52L54,60Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,78L68,78L68,84L40,84Z" />
+</vector>

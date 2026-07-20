@@ -1,0 +1,13 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+app/build/
+.externalNativeBuild/
+.cxx/
+
+# Local Claude settings
+.claude/settings.local.json

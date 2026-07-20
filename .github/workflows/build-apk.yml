@@ -1,0 +1,59 @@
+name: Build APK
+
+on:
+  push:
+    branches:
+      - claude/stadt-land-fluss-apk-3po6eo
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk Stadt-Land-Fluss.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stadt-Land-Fluss-APK
+          path: Stadt-Land-Fluss.apk
+
+      - name: Publish APK as release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: Stadt-Land-Fluss APK
+          body: |
+            Stadt-Land-Fluss gegen den Computer.
+
+            **Installation:** Lade `Stadt-Land-Fluss.apk` herunter und öffne die
+            Datei auf einem Android-Gerät (Android 8.0 / API 26 oder neuer).
+            Ggf. muss die Installation aus unbekannten Quellen erlaubt werden.
+          files: Stadt-Land-Fluss.apk
+          make_latest: true
