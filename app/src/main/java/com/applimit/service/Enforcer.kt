@@ -20,10 +20,12 @@ import kotlinx.coroutines.withContext
 object Enforcer {
 
     private const val TAG = "Enforcer"
+    private const val HARD_LOCK_DEBOUNCE_MS = 30_000L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
 
     @Volatile private var currentPackage: String? = null
+    @Volatile private var lastHardLockAt = 0L
 
     private var overlay: OverlayController? = null
     private var lock: DeviceLockController? = null
@@ -90,9 +92,14 @@ object Enforcer {
                 }
 
                 EnforcementAction.LOCK_DEVICE -> {
-                    // The full-screen overlay IS the lock screen. We deliberately do
-                    // NOT call lockNow() repeatedly (that hammered the system lock).
-                    // Enabling the device admin therefore never locks by itself.
+                    // Real device lock (lockNow, where the device admin is active)
+                    // PLUS the full-screen overlay. Debounced to at most once every
+                    // 30 s so it locks reliably without hammering the system lock.
+                    val nowMs = System.currentTimeMillis()
+                    if (nowMs - lastHardLockAt > HARD_LOCK_DEBOUNCE_MS) {
+                        lastHardLockAt = nowMs
+                        runCatching { lock?.enforceFullLock() }
+                    }
                     val (title, body) = when {
                         decision.reason.contains("Ruhezeit") ->
                             "Ruhezeit" to "Jetzt ist Ruhezeit. Die Apps sind bis zum nächsten Zeitfenster gesperrt."
