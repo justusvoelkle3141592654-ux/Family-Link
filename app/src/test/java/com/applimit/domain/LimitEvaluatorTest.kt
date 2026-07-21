@@ -98,14 +98,20 @@ class LimitEvaluatorTest {
         assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
-    @Test fun `uncategorised app counts as standard via default set`() {
-        // "com.new" is not managed but is a real user app → STANDARD by default.
-        val d = LimitEvaluator.evaluate(
-            "com.new", mapOf("com.new" to min(70)), apps, base(), noon,
-            defaultStandardPackages = setOf("com.new"),
-        )
-        // 70 >= general 60 → device lock
+    @Test fun `uncategorised app counts to the limit by default`() {
+        // "com.new" is not managed → counts towards the pools automatically.
+        val d = LimitEvaluator.evaluate("com.new", mapOf("com.new" to min(70)), apps, base(), noon)
+        // 70 >= general 60 → device lock, regardless of foreground category
         assertEquals(EnforcementAction.LOCK_DEVICE, d.action)
+        assertEquals("Allgemeines Limit erreicht", d.reason)
+    }
+
+    @Test fun `excluded package does not count`() {
+        val d = LimitEvaluator.evaluate(
+            "com.new", mapOf("com.launcher" to min(200)), apps, base(), noon,
+            excludedPackages = setOf("com.launcher"),
+        )
+        assertEquals(EnforcementAction.ALLOW, d.action)
     }
 
     @Test fun `pause disables limits and ruhezeit but not blocked apps`() {

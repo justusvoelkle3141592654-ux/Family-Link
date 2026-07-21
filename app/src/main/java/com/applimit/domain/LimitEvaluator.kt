@@ -60,26 +60,27 @@ object LimitEvaluator {
         managedApps: List<ManagedApp>,
         settings: AppSettings,
         nowMinuteOfDay: Int,
-        /** Real user apps that count as STANDARD by default when not categorised. */
-        defaultStandardPackages: Set<String> = emptySet(),
+        /** System/launcher/own packages that never count and never lock. */
+        excludedPackages: Set<String> = emptySet(),
         /** True while the parent's "Aus-Button" pause is active. */
         limitsPaused: Boolean = false,
     ): LimitDecision {
         val appByPackage = managedApps.associateBy { it.packageName }
 
-        // Effective category: explicit assignment, else STANDARD for real user
-        // apps (so uncategorised apps still count towards the limits), else null.
-        fun categoryOf(pkg: String): AppCategory? =
-            appByPackage[pkg]?.category
-                ?: if (pkg in defaultStandardPackages) AppCategory.STANDARD else null
-
+        // Count ALL foreground usage towards the limits by default; only PLUS
+        // (without the global flag) and BLOCKED apps, plus phone/system/launcher,
+        // are excluded. This means uncategorised apps count automatically, so the
+        // general/global limit actually fills up and locks.
         var generalMs = 0L
         var globalMs = 0L
         for ((pkg, ms) in usageMillisByPackage) {
-            when (categoryOf(pkg)) {
-                AppCategory.LIMIT, AppCategory.STANDARD -> { generalMs += ms; globalMs += ms }
-                AppCategory.PLUS -> if (appByPackage[pkg]?.plusCountsToGlobal == true) globalMs += ms
-                AppCategory.BLOCKED, null -> { /* counts to nothing */ }
+            if (pkg in excludedPackages || isPhone(pkg)) continue
+            val managed = appByPackage[pkg]
+            when (managed?.category) {
+                AppCategory.BLOCKED -> { /* counts to nothing */ }
+                AppCategory.PLUS -> if (managed.plusCountsToGlobal) globalMs += ms
+                // LIMIT, STANDARD or unmanaged → counts to both pools.
+                else -> { generalMs += ms; globalMs += ms }
             }
         }
 
@@ -87,7 +88,6 @@ object LimitEvaluator {
         val globalLimitMs = settings.globalLimitMinutes * 60_000L
 
         val fgManaged = foregroundPackage?.let { appByPackage[it] }
-        val fgCat = foregroundPackage?.let { categoryOf(it) }
         val fgUsedMs = foregroundPackage?.let { usageMillisByPackage[it] } ?: 0L
         val indivLimitMs =
             if (fgManaged?.category == AppCategory.LIMIT) fgManaged.individualLimitMinutes * 60_000L else 0L
@@ -115,7 +115,7 @@ object LimitEvaluator {
         }
 
         // 3) Explicitly blocked apps stay blocked, even when paused.
-        if (fgCat == AppCategory.BLOCKED) {
+        if (fgManaged?.category == AppCategory.BLOCKED) {
             return build(EnforcementAction.BLOCK_APP, "App ist gesperrt")
         }
 
@@ -127,23 +127,26 @@ object LimitEvaluator {
             return build(EnforcementAction.LOCK_DEVICE, "Ruhezeit")
         }
 
-        // 6) Category-specific limit rules.
-        return when (fgCat) {
-            null -> build(EnforcementAction.ALLOW, "Nicht verwaltet")
-            AppCategory.PLUS -> build(EnforcementAction.ALLOW, "Zugelassen Plus")
-            AppCategory.BLOCKED -> build(EnforcementAction.BLOCK_APP, "App ist gesperrt")
-            AppCategory.LIMIT -> when {
-                fgUsedMs >= indivLimitMs -> build(EnforcementAction.BLOCK_APP, "Individuelles App-Limit erreicht")
-                generalMs >= generalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Allgemeines Limit erreicht")
-                globalMs >= globalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Globales Limit erreicht")
-                else -> build(EnforcementAction.ALLOW, "OK")
-            }
-            AppCategory.STANDARD -> when {
-                generalMs >= generalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Allgemeines Limit erreicht")
-                globalMs >= globalLimitMs -> build(EnforcementAction.LOCK_DEVICE, "Globales Limit erreicht")
-                else -> build(EnforcementAction.ALLOW, "OK")
-            }
+        // 6) Plus apps are always allowed (they never count to the general pool).
+        if (fgManaged?.category == AppCategory.PLUS) {
+            return build(EnforcementAction.ALLOW, "Zugelassen Plus")
         }
+
+        // 7) DEVICE-WIDE limit: once the general/global pool is full, lock the
+        //    device no matter which (non-plus, non-phone) app is in the foreground.
+        if (generalMs >= generalLimitMs) {
+            return build(EnforcementAction.LOCK_DEVICE, "Allgemeines Limit erreicht")
+        }
+        if (globalMs >= globalLimitMs) {
+            return build(EnforcementAction.LOCK_DEVICE, "Globales Limit erreicht")
+        }
+
+        // 8) Individual per-app limit only blocks that one app.
+        if (fgManaged?.category == AppCategory.LIMIT && fgUsedMs >= indivLimitMs) {
+            return build(EnforcementAction.BLOCK_APP, "Individuelles App-Limit erreicht")
+        }
+
+        return build(EnforcementAction.ALLOW, "OK")
     }
 
     private fun isPhone(pkg: String?): Boolean {

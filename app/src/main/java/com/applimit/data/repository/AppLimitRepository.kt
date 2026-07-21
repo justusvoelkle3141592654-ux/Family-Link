@@ -62,29 +62,32 @@ class AppLimitRepository private constructor(
         return hasLauncher || !isSystem
     }
 
-    // Cache of "real user app" packages that count as STANDARD by default.
-    @Volatile private var userAppsCache: Set<String>? = null
-    @Volatile private var userAppsCacheAt = 0L
+    // Cache of packages that never count / never lock (system, launcher, own).
+    @Volatile private var excludedCache: Set<String>? = null
+    @Volatile private var excludedCacheAt = 0L
 
-    /** Launchable user apps minus our own app, the launcher and the dialer. */
-    private fun defaultStandardPackages(): Set<String> {
+    /**
+     * Packages excluded from limit counting and from locking: our own app, the
+     * current launcher and core system UI. Everything else (all real apps) counts
+     * towards the limits by default, so uncategorised apps still fill the pools.
+     */
+    private fun excludedPackages(): Set<String> {
         val nowMs = System.currentTimeMillis()
-        userAppsCache?.let { if (nowMs - userAppsCacheAt < 5 * 60_000L) return it }
+        excludedCache?.let { if (nowMs - excludedCacheAt < 5 * 60_000L) return it }
         val pm = appContext.packageManager
         val launcher = pm.resolveActivity(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
             PackageManager.MATCH_DEFAULT_ONLY,
         )?.activityInfo?.packageName
-        val phoneHints = listOf(".dialer", ".phone", ".incallui", "telecom")
-        val set = pm.getInstalledApplications(0)
-            .asSequence()
-            .map { it.packageName }
-            .filter { pm.getLaunchIntentForPackage(it) != null }
-            .filter { it != appContext.packageName && it != launcher }
-            .filter { pkg -> phoneHints.none { pkg.contains(it, true) } }
-            .toSet()
-        userAppsCache = set
-        userAppsCacheAt = nowMs
+        val set = buildSet {
+            add(appContext.packageName)
+            add("android")
+            add("com.android.systemui")
+            add("com.google.android.inputmethod.latin")
+            launcher?.let { add(it) }
+        }
+        excludedCache = set
+        excludedCacheAt = nowMs
         return set
     }
 
@@ -105,7 +108,7 @@ class AppLimitRepository private constructor(
             val minuteOfDay = now.hour * 60 + now.minute
             LimitEvaluator.evaluate(
                 foregroundPackage, usage, apps, settings, minuteOfDay,
-                defaultStandardPackages(), limitsPaused(settings),
+                excludedPackages(), limitsPaused(settings),
             )
         }
 
@@ -118,18 +121,18 @@ class AppLimitRepository private constructor(
         val settings = settingsStore.current()
         val usage = usageReader.foregroundMillisSinceMidnight()
         val byPkg = apps.associateBy { it.packageName }
-        val defaults = defaultStandardPackages()
-
-        fun categoryOf(pkg: String): AppCategory? =
-            byPkg[pkg]?.category ?: if (pkg in defaults) AppCategory.STANDARD else null
+        val excluded = excludedPackages()
+        val phoneHints = listOf(".dialer", ".phone", ".incallui", "telecom")
 
         var generalMs = 0L
         var globalMs = 0L
         for ((pkg, ms) in usage) {
-            when (categoryOf(pkg)) {
-                AppCategory.LIMIT, AppCategory.STANDARD -> { generalMs += ms; globalMs += ms }
-                AppCategory.PLUS -> if (byPkg[pkg]?.plusCountsToGlobal == true) globalMs += ms
-                AppCategory.BLOCKED, null -> {}
+            if (pkg in excluded || phoneHints.any { pkg.contains(it, true) }) continue
+            val managed = byPkg[pkg]
+            when (managed?.category) {
+                AppCategory.BLOCKED -> {}
+                AppCategory.PLUS -> if (managed.plusCountsToGlobal) globalMs += ms
+                else -> { generalMs += ms; globalMs += ms }
             }
         }
         val appUsages = apps.map { app ->
